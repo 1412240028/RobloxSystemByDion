@@ -359,35 +359,53 @@ end
 
 -- Get help text based on permission level
 function AdminManager:GetHelpText(permissionLevel)
-    local help = "=== Checkpoint System Admin Commands ===\n\n"
+    local help = "=== Checkpoint System Admin Commands ===\n"
+    help = help .. "Prefixes: / ! ;\n\n"
 
     if permissionLevel >= 1 then
-        help = help .. "HELP - Show this help message\n"
+        help = help .. "HELP/CMD/COMMANDS - Show this help message\n"
         help = help .. "STATUS - Show current server status\n"
     end
 
     if permissionLevel >= 2 then
-        help = help .. "LIST_ADMINS - List all admins\n"
+        help = help .. "LIST_ADMINS/ADMINLIST/ADMINS - List all admins\n"
+        help = help .. "SYSTEM_INFO/SYSINFO - Show detailed system info\n"
+        help = help .. "PLAYER_LIST/PLAYERS - List online players\n"
     end
 
     if permissionLevel >= 3 then
-        help = help .. "KICK_PLAYER <username> - Kick a player\n"
-        help = help .. "VIEW_PLAYER_DATA <username> - View player's checkpoint data\n"
+        help = help .. "KICK_PLAYER/KICK <username> - Kick a player\n"
+        help = help .. "VIEW_PLAYER_DATA/PLAYERDATA/CHECKDATA <username> - View player's checkpoint data\n"
+        help = help .. "LIST_BANS/BANS - List banned players\n"
+        help = help .. "TELEPORT_TO/TPTO <username> - Teleport to player\n"
+        help = help .. "FREEZE <username> - Freeze player\n"
+        help = help .. "UNFREEZE <username> - Unfreeze player\n"
+        help = help .. "MUTE <username> - Mute player (requires chat integration)\n"
+        help = help .. "UNMUTE <username> - Unmute player\n"
     end
 
     if permissionLevel >= 4 then
-        help = help .. "RESET_PLAYER <username> - Reset player's progress\n"
-        help = help .. "GLOBAL_STATUS - Show global system status\n"
+        help = help .. "RESET_PLAYER/RESET <username> - Reset player's progress\n"
+        help = help .. "GLOBAL_STATUS/GLOBALSTATUS - Show global system status\n"
+        help = help .. "BAN_PLAYER/BAN <username> [reason] - Ban a player\n"
+        help = help .. "UNBAN_PLAYER/UNBAN <username> - Unban a player\n"
+        help = help .. "TELEPORT_HERE/TPH <username> - Teleport player to you\n"
+        help = help .. "SERVER_MESSAGE/SERVERMSG/BROADCAST <message> - Send server message\n"
+        help = help .. "FORCE_SAVE/FORCESAVE <username> - Force save player data\n"
+        help = help .. "VIEW_LOGS/LOGS [count] - View command logs\n"
     end
 
     if permissionLevel >= 5 then
-        help = help .. "ADD_ADMIN_UID <uid> <permission> - Add admin by UID\n"
+        help = help .. "ADD_ADMIN_UID/ADDADMIN <uid> <permission> - Add admin by UID\n"
         help = help .. "ADD_ADMIN_USERNAME <username> <permission> - Add admin by username\n"
-        help = help .. "REMOVE_ADMIN <username> - Remove admin\n"
-        help = help .. "SHUTDOWN_SYSTEM - Emergency shutdown\n"
+        help = help .. "REMOVE_ADMIN/REMOVEADMIN <username> - Remove admin\n"
+        help = help .. "SET_PERMISSION/SETPERM <username> <level> - Change admin permission\n"
+        help = help .. "SHUTDOWN_SYSTEM/SHUTDOWN - Emergency shutdown\n"
+        help = help .. "CLEAR_LOGS/CLEARLOGS - Clear command logs\n"
     end
 
     help = help .. "\nPermission Levels: TESTER(1), HELPER(2), MODERATOR(3), DEVELOPER(4), OWNER(5)"
+    help = help .. "\nNote: All commands support prefixes / ! ; (e.g., !kick player, ;status)"
     return help
 end
 
