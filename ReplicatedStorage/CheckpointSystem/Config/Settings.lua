@@ -71,6 +71,39 @@ local Settings = {
     ENABLE_DEATH_LOOP_PROTECTION = true,
     ENABLE_SPAWN_VALIDATION = true,
     ENABLE_RACE_CONDITION_LOCKS = true,
+
+    -- Admin System Settings
+    ENABLE_ADMIN_SYSTEM = true,
+    ADMIN_PERMISSION_LEVELS = {
+        OWNER = 5,
+        DEVELOPER = 4,
+        MODERATOR = 3,
+        HELPER = 2,
+        TESTER = 1
+    },
+
+    -- Admin UIDs (Add your UID and other admins here)
+    ADMIN_UIDS = {
+        [8806688001] = "OWNER", -- Owner
+        [9653762582] = "TESTER", -- Co-Owner/Test Account
+        -- Add more admin UIDs here as needed
+    },
+
+    -- Admin Commands Settings
+    ADMIN_COMMAND_COOLDOWN = 1, -- seconds
+    ADMIN_LOG_RETENTION = 100, -- max log entries
+    ADMIN_GLOBAL_DATASTORE = "CheckpointAdminData_v1",
+
+    -- Global Communication Settings
+    ENABLE_GLOBAL_ADMIN_COMMANDS = true,
+    GLOBAL_MESSAGE_TOPIC = "CheckpointAdminCommands",
+    GLOBAL_STATUS_TOPIC = "CheckpointSystemStatus",
+    GLOBAL_DATA_REQUEST_TOPIC = "CheckpointGlobalData",
+
+    -- API Settings (for external admin panels)
+    ENABLE_EXTERNAL_API = false, -- Set to true if using external admin tools
+    API_ENDPOINT_URL = "", -- Leave empty for Roblox-only operation
+    API_AUTH_KEY = "", -- Generate secure key for external access
 }
 
 -- Validation functions

@@ -11,9 +11,13 @@ local DataHandler = require(game.ReplicatedStorage.CheckpointSystem.Modules.Data
 local SecurityValidator = require(game.ReplicatedStorage.CheckpointSystem.Modules.SecurityValidator)
 local RespawnHandler = require(game.ServerScriptService.CheckpointSystem.RespawnHandler)
 local AutoSaveService = require(game.ServerScriptService.CheckpointSystem.AutoSaveService)
+local AdminManager = require(game.ReplicatedStorage.CheckpointSystem.Modules.AdminManager)
 
 -- Remote events
 local CheckpointReachedEvent = game.ReplicatedStorage.CheckpointSystem.Remotes.CheckpointReached
+local AdminCommandEvent = game.ReplicatedStorage.CheckpointSystem.Remotes.AdminCommand
+local SystemStatusEvent = game.ReplicatedStorage.CheckpointSystem.Remotes.SystemStatus
+local GlobalDataEvent = game.ReplicatedStorage.CheckpointSystem.Remotes.GlobalData
 
 -- Private variables
 local playerSessions = {} -- {userId: sessionData}
@@ -71,6 +75,9 @@ function Initialize()
         modulesInitialized = false
     end
 
+    -- Initialize Admin Manager
+    AdminManager:Init()
+
     if not modulesInitialized then
         Log("ERROR", "Failed to initialize one or more modules")
         return false
@@ -80,8 +87,11 @@ function Initialize()
     Players.PlayerAdded:Connect(OnPlayerAdded)
     Players.PlayerRemoving:Connect(OnPlayerRemoving)
 
-    -- Set up remote event handler
+    -- Set up remote event handlers
     CheckpointReachedEvent.OnServerEvent:Connect(OnCheckpointReached)
+    AdminCommandEvent.OnServerEvent:Connect(OnAdminCommand)
+    SystemStatusEvent.OnServerEvent:Connect(OnSystemStatusRequest)
+    GlobalDataEvent.OnServerEvent:Connect(OnGlobalDataRequest)
 
     -- Start background services
     StartBackgroundServices()
@@ -367,6 +377,62 @@ function Cleanup()
 
     isInitialized = false
     Log("INFO", "Server system cleaned up")
+end
+
+-- Handle admin command from client
+function OnAdminCommand(player, command, args)
+    if not isInitialized or not Settings.ENABLE_ADMIN_SYSTEM then
+        return
+    end
+
+    Log("DEBUG", "Admin command from %s: %s", player.Name, command)
+
+    -- Execute command through AdminManager
+    local success, result = AdminManager:ExecuteCommand(player, command, args)
+
+    -- Send result back to player
+    AdminCommandEvent:FireClient(player, success, result)
+end
+
+-- Handle system status request
+function OnSystemStatusRequest(player)
+    if not isInitialized then
+        SystemStatusEvent:FireClient(player, false, "System not initialized")
+        return
+    end
+
+    -- Check if player is admin
+    if not AdminManager:IsAdmin(player) then
+        SystemStatusEvent:FireClient(player, false, "Admin access required")
+        return
+    end
+
+    local status = AdminManager:GetSystemStatus()
+    SystemStatusEvent:FireClient(player, true, status)
+end
+
+-- Handle global data request
+function OnGlobalDataRequest(player, requestType, targetUser)
+    if not isInitialized or not Settings.ENABLE_ADMIN_SYSTEM then
+        GlobalDataEvent:FireClient(player, false, "System not available")
+        return
+    end
+
+    -- Check if player is admin
+    if not AdminManager:IsAdmin(player) then
+        GlobalDataEvent:FireClient(player, false, "Admin access required")
+        return
+    end
+
+    if requestType == "PLAYER_DATA" then
+        local result = AdminManager:GetPlayerData(targetUser)
+        GlobalDataEvent:FireClient(player, true, result)
+    elseif requestType == "GLOBAL_STATUS" then
+        local result = AdminManager:GetGlobalStatus()
+        GlobalDataEvent:FireClient(player, true, result)
+    else
+        GlobalDataEvent:FireClient(player, false, "Unknown request type")
+    end
 end
 
 -- Initialize on script run
