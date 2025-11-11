@@ -1,0 +1,3 @@
+-- Checkpoint System V1.0 - Notification Frame
+-- This is a placeholder file for the UI frame
+-- The actual UI is created dynamically by UIController.lua
