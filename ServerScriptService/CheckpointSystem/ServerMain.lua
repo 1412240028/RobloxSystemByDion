@@ -9,6 +9,8 @@ local Settings = require(game.ReplicatedStorage.CheckpointSystem.Config.Settings
 local CheckpointManager = require(game.ReplicatedStorage.CheckpointSystem.Modules.CheckpointManager)
 local DataHandler = require(game.ReplicatedStorage.CheckpointSystem.Modules.DataHandler)
 local SecurityValidator = require(game.ReplicatedStorage.CheckpointSystem.Modules.SecurityValidator)
+local RespawnHandler = require(game.ServerScriptService.CheckpointSystem.RespawnHandler)
+local AutoSaveService = require(game.ServerScriptService.CheckpointSystem.AutoSaveService)
 
 -- Remote events
 local CheckpointReachedEvent = game.ReplicatedStorage.CheckpointSystem.Remotes.CheckpointReached
@@ -56,6 +58,16 @@ function Initialize()
 
     if not SecurityValidator.Initialize() then
         Log("ERROR", "Failed to initialize SecurityValidator")
+        modulesInitialized = false
+    end
+
+    if not RespawnHandler.Initialize() then
+        Log("ERROR", "Failed to initialize RespawnHandler")
+        modulesInitialized = false
+    end
+
+    if not AutoSaveService.Initialize() then
+        Log("ERROR", "Failed to initialize AutoSaveService")
         modulesInitialized = false
     end
 
@@ -350,6 +362,8 @@ function Cleanup()
     CheckpointManager.Cleanup()
     DataHandler.Cleanup()
     SecurityValidator.Cleanup()
+    RespawnHandler.Cleanup()
+    AutoSaveService.Cleanup()
 
     isInitialized = false
     Log("INFO", "Server system cleaned up")
