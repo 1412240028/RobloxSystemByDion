@@ -170,21 +170,24 @@ function CreateToggleButton()
     local toggleButton = Instance.new("TextButton")
     toggleButton.Name = "AdminToggle"
     toggleButton.Size = UDim2.new(0, 120, 0, 40)
-    toggleButton.Position = UDim2.new(0, 10, 1, -50)
+    toggleButton.Position = UDim2.new(1, -130, 0, 10)
     toggleButton.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
-    toggleButton.Text = "Admin Panel"
+    toggleButton.Text = "Open"
     toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
     toggleButton.TextSize = 14
     toggleButton.Font = Enum.Font.SourceSansBold
     toggleButton.Parent = adminGui
 
     local toggleCorner = Instance.new("UICorner")
-    toggleCorner.CornerRadius = UDim.new(0, 6)
+    toggleCorner.CornerRadius = UDim.new(0, 20) -- Fully rounded when hidden
     toggleCorner.Parent = toggleButton
 
     toggleButton.MouseButton1Click:Connect(function()
         if adminGui and adminGui:FindFirstChild("MainFrame") then
-            adminGui.MainFrame.Visible = not adminGui.MainFrame.Visible
+            local mainFrame = adminGui.MainFrame
+            mainFrame.Visible = not mainFrame.Visible
+            toggleButton.Text = mainFrame.Visible and "Close" or "Open"
+            toggleCorner.CornerRadius = mainFrame.Visible and UDim.new(0, 6) or UDim.new(0, 20)
         end
     end)
 end
