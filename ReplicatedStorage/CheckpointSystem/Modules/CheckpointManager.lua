@@ -186,9 +186,28 @@ function CheckpointManager.CheckpointExists(order)
     return CheckpointManager.GetCheckpointByOrder(order) ~= nil
 end
 
--- Get spawn position for checkpoint
 function CheckpointManager.GetSpawnPosition(order)
+    Log("DEBUG", "GetSpawnPosition called for checkpoint order: %d", order)
+    
     local checkpoint = CheckpointManager.GetCheckpointByOrder(order)
+    
+    if not checkpoint then
+        Log("ERROR", "No checkpoint found for order: %d", order)
+        Log("DEBUG", "Available checkpoints: %d", #checkpoints)
+        
+        -- Debug: Print all available checkpoint orders
+        if Settings.DEBUG_MODE then
+            for i, cp in ipairs(checkpoints) do
+                Log("DEBUG", "  Checkpoint %d: Order=%d, Part=%s", i, cp.Order, cp.Part.Name)
+            end
+        end
+        
+        return nil
+    end
+    
+    Log("DEBUG", "Found checkpoint order %d: Part=%s, SpawnPos=%s", 
+        order, checkpoint.Part.Name, tostring(checkpoint.SpawnPosition))
+    
     return checkpoint and checkpoint.SpawnPosition or nil
 end
 

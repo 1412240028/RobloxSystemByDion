@@ -19,8 +19,8 @@ local Settings = {
     CHECKPOINT_SPAWN_OFFSET = Vector3.new(0, 3, 0),
 
     -- Validation Settings
-    MAX_DISTANCE_STUDS = 15,
-    COOLDOWN_SECONDS = 1.5,
+    MAX_DISTANCE_STUDS = 25,
+    COOLDOWN_SECONDS = 0,
     DEATH_RESET_SECONDS = 300, -- 5 minutes
 
     -- Security Settings
@@ -62,7 +62,7 @@ local Settings = {
     AUDIO_PITCH_VARIATION = 0.1,
 
     -- Debug Settings
-    DEBUG_MODE = false,
+    DEBUG_MODE = true,
     LOG_LEVEL = "INFO", -- "DEBUG", "INFO", "WARN", "ERROR"
 
     -- Feature Flags
