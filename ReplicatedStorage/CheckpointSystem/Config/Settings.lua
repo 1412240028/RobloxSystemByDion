@@ -41,6 +41,7 @@ local Settings = {
     DEATH_LOOP_THRESHOLD = 3,
     DEATH_LOOP_FALLBACK_STEPS = 2,
     TEMPORARY_SHIELD_DURATION = 3,
+    RESPAWN_COOLDOWN = 1,
 
     -- Spawn Validation Settings
     SPAWN_VALIDATION_RADIUS_START = 5,

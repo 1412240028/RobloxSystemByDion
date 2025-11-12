@@ -294,7 +294,7 @@ function DataHandler.MigrateData(oldData, targetVersion)
 
     -- Future migrations can be added here
     -- if data.version < 2 then
-    --     -- Add new fields for v2
+    --     Add new fields for v2
     --     data.version = 2
     -- end
 
@@ -319,6 +319,57 @@ function DataHandler.ForceProcessQueue()
     end
 
     DataHandler.ProcessSaveQueue()
+end
+
+-- Generic save data to DataStore (for AdminManager)
+function DataHandler.SaveData(datastoreName, key, data)
+    if not isInitialized then
+        Log("ERROR", "DataHandler not initialized")
+        return false
+    end
+
+    local store = DataStoreService:GetDataStore(datastoreName)
+    
+    for attempt = 1, Settings.SAVE_RETRY_ATTEMPTS do
+        local success, errorMsg = pcall(function()
+            store:SetAsync(key, data)
+        end)
+
+        if success then
+            Log("DEBUG", "Saved data to DataStore '%s' with key '%s'", datastoreName, key)
+            return true
+        else
+            Log("WARN", "Save attempt %d failed for DataStore '%s' key '%s': %s", attempt, datastoreName, key, errorMsg)
+            if attempt < Settings.SAVE_RETRY_ATTEMPTS then
+                local delay = Settings.SAVE_RETRY_BACKOFF[attempt] or 1
+                wait(delay)
+            end
+        end
+    end
+
+    return false
+end
+
+-- Generic load data from DataStore (for AdminManager)
+function DataHandler.LoadData(datastoreName, key)
+    if not isInitialized then
+        Log("ERROR", "DataHandler not initialized")
+        return nil
+    end
+
+    local store = DataStoreService:GetDataStore(datastoreName)
+    
+    local success, data = pcall(function()
+        return store:GetAsync(key)
+    end)
+
+    if not success then
+        Log("ERROR", "Failed to load from DataStore '%s' with key '%s'", datastoreName, key)
+        return nil
+    end
+
+    Log("DEBUG", "Loaded data from DataStore '%s' with key '%s'", datastoreName, key)
+    return data
 end
 
 -- Cleanup function
