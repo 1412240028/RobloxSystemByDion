@@ -27,157 +27,157 @@ local isInitialized = false
 
 -- Logger utility
 local function Log(level, message, ...)
-    if not Settings.DEBUG_MODE and level == "DEBUG" then return end
+	if not Settings.DEBUG_MODE and level == "DEBUG" then return end
 
-    local prefix = "[ServerMain]"
-    if level == "ERROR" then
-        warn(prefix .. " " .. string.format(message, ...))
-    elseif level == "WARN" then
-        warn(prefix .. " " .. string.format(message, ...))
-    elseif level == "INFO" or (Settings.DEBUG_MODE and level == "DEBUG") then
-        print(prefix .. " " .. string.format(message, ...))
-    end
+	local prefix = "[ServerMain]"
+	if level == "ERROR" then
+		warn(prefix .. " " .. string.format(message, ...))
+	elseif level == "WARN" then
+		warn(prefix .. " " .. string.format(message, ...))
+	elseif level == "INFO" or (Settings.DEBUG_MODE and level == "DEBUG") then
+		print(prefix .. " " .. string.format(message, ...))
+	end
 end
 
 -- Get player checkpoint (needed by RespawnHandler)
 local function GetPlayerCheckpoint(userId)
-    local session = playerSessions[userId]
-    return session and session.CurrentCheckpoint or 0
+	local session = playerSessions[userId]
+	return session and session.CurrentCheckpoint or 0
 end
 
 -- Update player death count (needed by RespawnHandler)
 local function UpdatePlayerDeathCount(userId)
-    local session = playerSessions[userId]
-    if session then
-        session.DeathCount = session.DeathCount + 1
-        Log("DEBUG", "Death count updated for %d: %d", userId, session.DeathCount)
-        return session.DeathCount
-    end
-    return 0
+	local session = playerSessions[userId]
+	if session then
+		session.DeathCount = session.DeathCount + 1
+		Log("DEBUG", "Death count updated for %d: %d", userId, session.DeathCount)
+		return session.DeathCount
+	end
+	return 0
 end
 
 -- Initialize the server system
 local function Initialize()
-    if isInitialized then
-        Log("WARN", "Server system already initialized")
-        return true
-    end
+	if isInitialized then
+		Log("WARN", "Server system already initialized")
+		return true
+	end
 
-    Log("INFO", "Initializing Checkpoint System Server...")
+	Log("INFO", "Initializing Checkpoint System Server...")
 
-    -- Initialize modules
-    local modulesInitialized = true
+	-- Initialize modules
+	local modulesInitialized = true
 
-    if not CheckpointManager.Initialize() then
-        Log("ERROR", "Failed to initialize CheckpointManager")
-        modulesInitialized = false
-    end
+	if not CheckpointManager.Initialize() then
+		Log("ERROR", "Failed to initialize CheckpointManager")
+		modulesInitialized = false
+	end
 
-    if not DataHandler.Initialize() then
-        Log("ERROR", "Failed to initialize DataHandler")
-        modulesInitialized = false
-    end
+	if not DataHandler.Initialize() then
+		Log("ERROR", "Failed to initialize DataHandler")
+		modulesInitialized = false
+	end
 
-    if not SecurityValidator.Initialize() then
-        Log("ERROR", "Failed to initialize SecurityValidator")
-        modulesInitialized = false
-    end
+	if not SecurityValidator.Initialize() then
+		Log("ERROR", "Failed to initialize SecurityValidator")
+		modulesInitialized = false
+	end
 
-    if not RespawnHandler.Initialize() then
-        Log("ERROR", "Failed to initialize RespawnHandler")
-        modulesInitialized = false
-    end
+	if not RespawnHandler.Initialize() then
+		Log("ERROR", "Failed to initialize RespawnHandler")
+		modulesInitialized = false
+	end
 
-    -- CRITICAL: Link RespawnHandler to ServerMain functions (avoid circular dependency)
-    RespawnHandler.ServerMainModule = {
-        UpdatePlayerDeathCount = UpdatePlayerDeathCount,
-        GetPlayerCheckpoint = GetPlayerCheckpoint
-    }
-    Log("INFO", "RespawnHandler linked to ServerMain functions")
+	-- CRITICAL: Link RespawnHandler to ServerMain functions (avoid circular dependency)
+	RespawnHandler.ServerMainModule = {
+		UpdatePlayerDeathCount = UpdatePlayerDeathCount,
+		GetPlayerCheckpoint = GetPlayerCheckpoint
+	}
+	Log("INFO", "RespawnHandler linked to ServerMain functions")
 
-    if not AutoSaveService.Initialize() then
-        Log("ERROR", "Failed to initialize AutoSaveService")
-        modulesInitialized = false
-    end
+	if not AutoSaveService.Initialize() then
+		Log("ERROR", "Failed to initialize AutoSaveService")
+		modulesInitialized = false
+	end
 
-    -- Initialize Admin Manager
-    AdminManager:Init()
+	-- Initialize Admin Manager
+	AdminManager:Init()
 
-    if not modulesInitialized then
-        Log("ERROR", "Failed to initialize one or more modules")
-        return false
-    end
+	if not modulesInitialized then
+		Log("ERROR", "Failed to initialize one or more modules")
+		return false
+	end
 
-    -- Set up player connections
-    Players.PlayerAdded:Connect(OnPlayerAdded)
-    Players.PlayerRemoving:Connect(OnPlayerRemoving)
+	-- Set up player connections
+	Players.PlayerAdded:Connect(OnPlayerAdded)
+	Players.PlayerRemoving:Connect(OnPlayerRemoving)
 
-    -- Set up remote event handlers
-    CheckpointReachedEvent.OnServerEvent:Connect(OnCheckpointReached)
-    AdminCommandEvent.OnServerEvent:Connect(OnAdminCommand)
-    SystemStatusEvent.OnServerEvent:Connect(OnSystemStatusRequest)
-    GlobalDataEvent.OnServerEvent:Connect(OnGlobalDataRequest)
+	-- Set up remote event handlers
+	CheckpointReachedEvent.OnServerEvent:Connect(OnCheckpointReached)
+	AdminCommandEvent.OnServerEvent:Connect(OnAdminCommand)
+	SystemStatusEvent.OnServerEvent:Connect(OnSystemStatusRequest)
+	GlobalDataEvent.OnServerEvent:Connect(OnGlobalDataRequest)
 
-    -- Start background services
-    StartBackgroundServices()
+	-- Start background services
+	StartBackgroundServices()
 
-    isInitialized = true
-    Log("INFO", "Checkpoint System Server initialized successfully")
-    return true
+	isInitialized = true
+	Log("INFO", "Checkpoint System Server initialized successfully")
+	return true
 end
 
 -- Handle player joining
 function OnPlayerAdded(player)
-    if not isInitialized then
-        Log("ERROR", "System not initialized, cannot handle player join")
-        return
-    end
+	if not isInitialized then
+		Log("ERROR", "System not initialized, cannot handle player join")
+		return
+	end
 
-    local userId = player.UserId
-    Log("INFO", "Player %s (%d) joined", player.Name, userId)
+	local userId = player.UserId
+	Log("INFO", "Player %s (%d) joined", player.Name, userId)
 
-    -- Load player data
-    local playerData = DataHandler.LoadCheckpoint(userId)
+	-- Load player data
+	local playerData = DataHandler.LoadCheckpoint(userId)
 
-    -- Create session
-    local session = {
-        Player = player,
-        UserId = userId,
-        CurrentCheckpoint = playerData.checkpoint or 0,
-        DeathCount = playerData.deathCount or 0,
-        SessionStartTime = playerData.sessionStartTime or os.time(),
-        LastSaveTime = 0,
-        JoinTime = tick()
-    }
+	-- Create session
+	local session = {
+		Player = player,
+		UserId = userId,
+		CurrentCheckpoint = playerData.checkpoint or 0,
+		DeathCount = playerData.deathCount or 0,
+		SessionStartTime = playerData.sessionStartTime or os.time(),
+		LastSaveTime = 0,
+		JoinTime = tick()
+	}
 
-    playerSessions[userId] = session
+	playerSessions[userId] = session
 
-    -- Update security validator
-    SecurityValidator.SetCurrentCheckpoint(userId, session.CurrentCheckpoint)
+	-- Update security validator
+	SecurityValidator.SetCurrentCheckpoint(userId, session.CurrentCheckpoint)
 
-    -- Set up auto-save
-    SetupAutoSave(userId)
+	-- Set up auto-save
+	SetupAutoSave(userId)
 
-    -- SPAWN PLAYER AT THEIR LAST CHECKPOINT
-    if session.CurrentCheckpoint > 0 then
-        SpawnPlayerAtCheckpoint(player, session.CurrentCheckpoint)
-    end
+	-- SPAWN PLAYER AT THEIR LAST CHECKPOINT
+	if session.CurrentCheckpoint > 0 then
+		SpawnPlayerAtCheckpoint(player, session.CurrentCheckpoint)
+	end
 
-    Log("DEBUG", "Player session created for %s: checkpoint=%d", player.Name, session.CurrentCheckpoint)
+	Log("DEBUG", "Player session created for %s: checkpoint=%d", player.Name, session.CurrentCheckpoint)
 end
 
 -- Handle player leaving
 local function OnPlayerLeaving(player)
-    if not isInitialized then return end
+	if not isInitialized then return end
 
-    local userId = player.UserId
-    Log("INFO", "Player %s (%d) leaving", player.Name, userId)
+	local userId = player.UserId
+	Log("INFO", "Player %s (%d) leaving", player.Name, userId)
 
-    -- Force save on leave
-    ForceSavePlayerData(userId)
+	-- Force save on leave
+	ForceSavePlayerData(userId)
 
-    -- Cleanup session
-    CleanupPlayerSession(userId)
+	-- Cleanup session
+	CleanupPlayerSession(userId)
 end
 
 -- Handle player removal (alias for leaving)
@@ -185,335 +185,335 @@ OnPlayerRemoving = OnPlayerLeaving
 
 -- Handle checkpoint reached event from client
 function OnCheckpointReached(player, checkpointOrder, checkpointPart)
-    if not isInitialized then
-        Log("ERROR", "System not initialized")
-        return
-    end
+	if not isInitialized then
+		Log("ERROR", "System not initialized")
+		return
+	end
 
-    local userId = player.UserId
-    Log("DEBUG", "Checkpoint reached event from %s: order=%d", player.Name, checkpointOrder)
+	local userId = player.UserId
+	Log("DEBUG", "Checkpoint reached event from %s: order=%d", player.Name, checkpointOrder)
 
-    -- Get or create session if first checkpoint touch
-    if not playerSessions[userId] then
-        Log("INFO", "First checkpoint touch - creating session for %s", player.Name)
-        OnPlayerAdded(player)
-    end
+	-- Get or create session if first checkpoint touch
+	if not playerSessions[userId] then
+		Log("INFO", "First checkpoint touch - creating session for %s", player.Name)
+		OnPlayerAdded(player)
+	end
 
-    -- Validate the touch
-    local valid, reason = SecurityValidator.ValidateCheckpointTouch(player, checkpointPart, checkpointOrder)
+	-- Validate the touch
+	local valid, reason = SecurityValidator.ValidateCheckpointTouch(player, checkpointPart, checkpointOrder)
 
-    if not valid then
-        Log("WARN", "Invalid checkpoint touch from %s: %s", player.Name, reason)
-        return
-    end
+	if not valid then
+		Log("WARN", "Invalid checkpoint touch from %s: %s", player.Name, reason)
+		return
+	end
 
-    -- Update session
-    local session = playerSessions[userId]
-    if session then
-        session.CurrentCheckpoint = checkpointOrder
-        session.LastSaveTime = tick()
-    end
+	-- Update session
+	local session = playerSessions[userId]
+	if session then
+		session.CurrentCheckpoint = checkpointOrder
+		session.LastSaveTime = tick()
+	end
 
-    -- Save data (async)
-    SavePlayerDataAsync(userId)
+	-- Save data (async)
+	SavePlayerDataAsync(userId)
 
-    -- Fire event to all clients for effects/UI
-    CheckpointReachedEvent:FireAllClients(player, checkpointOrder, checkpointPart)
+	-- Fire event to all clients for effects/UI
+	CheckpointReachedEvent:FireAllClients(player, checkpointOrder, checkpointPart)
 
-    Log("INFO", "Checkpoint %d reached by %s", checkpointOrder, player.Name)
+	Log("INFO", "Checkpoint %d reached by %s", checkpointOrder, player.Name)
 end
 
 -- Save player data asynchronously
 function SavePlayerDataAsync(userId)
-    -- Check if already saving
-    if isSaving[userId] then
-        Log("DEBUG", "Save already in progress for %d, skipping", userId)
-        return false
-    end
-    
-    if not SecurityValidator.CanSave(userId) then
-        Log("WARN", "Cannot save data for %d (lock held)", userId)
-        return false
-    end
+	-- Check if already saving
+	if isSaving[userId] then
+		Log("DEBUG", "Save already in progress for %d, skipping", userId)
+		return false
+	end
 
-    -- Acquire save lock
-    if not SecurityValidator.AcquireSaveLock(userId) then
-        Log("ERROR", "Failed to acquire save lock for %d", userId)
-        return false
-    end
+	if not SecurityValidator.CanSave(userId) then
+		Log("WARN", "Cannot save data for %d (lock held)", userId)
+		return false
+	end
 
-    -- Get session data
-    local session = playerSessions[userId]
-    if not session then
-        SecurityValidator.ReleaseSaveLock(userId)
-        Log("ERROR", "No session found for %d", userId)
-        return false
-    end
+	-- Acquire save lock
+	if not SecurityValidator.AcquireSaveLock(userId) then
+		Log("ERROR", "Failed to acquire save lock for %d", userId)
+		return false
+	end
 
-    -- Set saving flag
-    isSaving[userId] = true
+	-- Get session data
+	local session = playerSessions[userId]
+	if not session then
+		SecurityValidator.ReleaseSaveLock(userId)
+		Log("ERROR", "No session found for %d", userId)
+		return false
+	end
 
-    -- Prepare data
-    local data = {
-        checkpoint = session.CurrentCheckpoint,
-        deathCount = session.DeathCount,
-        sessionStartTime = session.SessionStartTime,
-        timestamp = os.time()
-    }
+	-- Set saving flag
+	isSaving[userId] = true
 
-    -- Save asynchronously
-    task.spawn(function()
-        local success = DataHandler.SaveCheckpoint(userId, data)
+	-- Prepare data
+	local data = {
+		checkpoint = session.CurrentCheckpoint,
+		deathCount = session.DeathCount,
+		sessionStartTime = session.SessionStartTime,
+		timestamp = os.time()
+	}
 
-        -- Release lock
-        SecurityValidator.ReleaseSaveLock(userId)
-        
-        -- Clear saving flag
-        isSaving[userId] = nil
-        
-        -- Update last save time on success
-        if success then
-            if session then
-                session.LastSaveTime = tick()
-            end
-            Log("DEBUG", "Data saved successfully for %d", userId)
-        else
-            Log("ERROR", "Failed to save data for %d", userId)
-        end
-    end)
+	-- Save asynchronously
+	task.spawn(function()
+		local success = DataHandler.SaveCheckpoint(userId, data)
 
-    return true
+		-- Release lock
+		SecurityValidator.ReleaseSaveLock(userId)
+
+		-- Clear saving flag
+		isSaving[userId] = nil
+
+		-- Update last save time on success
+		if success then
+			if session then
+				session.LastSaveTime = tick()
+			end
+			Log("DEBUG", "Data saved successfully for %d", userId)
+		else
+			Log("ERROR", "Failed to save data for %d", userId)
+		end
+	end)
+
+	return true
 end
 
 -- Force save (blocking, for player leaving)
 function ForceSavePlayerData(userId)
-    local session = playerSessions[userId]
-    if not session then
-        Log("WARN", "No session to save for %d", userId)
-        return false
-    end
+	local session = playerSessions[userId]
+	if not session then
+		Log("WARN", "No session to save for %d", userId)
+		return false
+	end
 
-    local data = {
-        checkpoint = session.CurrentCheckpoint,
-        deathCount = session.DeathCount,
-        sessionStartTime = session.SessionStartTime,
-        timestamp = os.time()
-    }
+	local data = {
+		checkpoint = session.CurrentCheckpoint,
+		deathCount = session.DeathCount,
+		sessionStartTime = session.SessionStartTime,
+		timestamp = os.time()
+	}
 
-    local success = DataHandler.SaveCheckpoint(userId, data)
-    if success then
-        Log("INFO", "Force saved data for %d", userId)
-    else
-        Log("ERROR", "Failed to force save data for %d", userId)
-    end
+	local success = DataHandler.SaveCheckpoint(userId, data)
+	if success then
+		Log("INFO", "Force saved data for %d", userId)
+	else
+		Log("ERROR", "Failed to force save data for %d", userId)
+	end
 
-    return success
+	return success
 end
 
 -- Set up auto-save for player
 function SetupAutoSave(userId)
-    -- Clear existing connection
-    if autoSaveConnections[userId] then
-        autoSaveConnections[userId]:Disconnect()
-    end
+	-- Clear existing connection
+	if autoSaveConnections[userId] then
+		autoSaveConnections[userId]:Disconnect()
+	end
 
-    -- Set up new auto-save
-    autoSaveConnections[userId] = RunService.Heartbeat:Connect(function()
-        local session = playerSessions[userId]
-        if not session then return end
+	-- Set up new auto-save
+	autoSaveConnections[userId] = RunService.Heartbeat:Connect(function()
+		local session = playerSessions[userId]
+		if not session then return end
 
-        local timeSinceLastSave = tick() - session.LastSaveTime
-        if timeSinceLastSave >= Settings.AUTO_SAVE_INTERVAL_SECONDS then
-            SavePlayerDataAsync(userId)
-        end
-    end)
+		local timeSinceLastSave = tick() - session.LastSaveTime
+		if timeSinceLastSave >= Settings.AUTO_SAVE_INTERVAL_SECONDS then
+			SavePlayerDataAsync(userId)
+		end
+	end)
 
-    Log("DEBUG", "Auto-save set up for %d", userId)
+	Log("DEBUG", "Auto-save set up for %d", userId)
 end
 
 -- Spawn player at specific checkpoint
 local function SpawnPlayerAtCheckpoint(player, checkpointOrder)
-    -- Wait for character to load
-    local character = player.Character or player.CharacterAdded:Wait()
-    
-    -- Wait for HumanoidRootPart
-    local humanoidRootPart = character:WaitForChild("HumanoidRootPart", 10)
-    if not humanoidRootPart then
-        Log("ERROR", "HumanoidRootPart not found for %s", player.Name)
-        return false
-    end
-    
-    -- Get spawn position from CheckpointManager
-    local spawnPosition = CheckpointManager.GetSpawnPosition(checkpointOrder)
-    if not spawnPosition then
-        Log("WARN", "No spawn position for checkpoint %d, using default", checkpointOrder)
-        return false
-    end
-    
-    -- Teleport player
-    task.wait(0.5) -- Small delay to ensure character is fully loaded
-    humanoidRootPart.CFrame = CFrame.new(spawnPosition)
-    
-    Log("INFO", "Spawned %s at checkpoint %d", player.Name, checkpointOrder)
-    return true
+	-- Wait for character to load
+	local character = player.Character or player.CharacterAdded:Wait()
+
+	-- Wait for HumanoidRootPart
+	local humanoidRootPart = character:WaitForChild("HumanoidRootPart", 10)
+	if not humanoidRootPart then
+		Log("ERROR", "HumanoidRootPart not found for %s", player.Name)
+		return false
+	end
+
+	-- Get spawn position from CheckpointManager
+	local spawnPosition = CheckpointManager.GetSpawnPosition(checkpointOrder)
+	if not spawnPosition then
+		Log("WARN", "No spawn position for checkpoint %d, using default", checkpointOrder)
+		return false
+	end
+
+	-- Teleport player
+	task.wait(0.5) -- Small delay to ensure character is fully loaded
+	humanoidRootPart.CFrame = CFrame.new(spawnPosition)
+
+	Log("INFO", "Spawned %s at checkpoint %d", player.Name, checkpointOrder)
+	return true
 end
 
 -- Start background services
 function StartBackgroundServices()
-    -- Process save queue periodically
-    RunService.Heartbeat:Connect(function()
-        DataHandler.ProcessSaveQueue()
-    end)
+	-- Process save queue periodically
+	RunService.Heartbeat:Connect(function()
+		DataHandler.ProcessSaveQueue()
+	end)
 
-    Log("DEBUG", "Background services started")
+	Log("DEBUG", "Background services started")
 end
 
 -- Get player session
 local function GetPlayerSession(userId)
-    return playerSessions[userId]
+	return playerSessions[userId]
 end
 
 -- Cleanup player session
 function CleanupPlayerSession(userId)
-    playerSessions[userId] = nil
-    isSaving[userId] = nil
+	playerSessions[userId] = nil
+	isSaving[userId] = nil
 
-    if autoSaveConnections[userId] then
-        autoSaveConnections[userId]:Disconnect()
-        autoSaveConnections[userId] = nil
-    end
+	if autoSaveConnections[userId] then
+		autoSaveConnections[userId]:Disconnect()
+		autoSaveConnections[userId] = nil
+	end
 
-    Log("DEBUG", "Session cleaned up for %d", userId)
+	Log("DEBUG", "Session cleaned up for %d", userId)
 end
 
 -- Get system status
 local function GetSystemStatus()
-    local status = {
-        Initialized = isInitialized,
-        ActivePlayers = 0,
-        TotalCheckpoints = CheckpointManager.GetCheckpointCount(),
-        DataQueueSize = DataHandler.GetQueueStatus().Size
-    }
+	local status = {
+		Initialized = isInitialized,
+		ActivePlayers = 0,
+		TotalCheckpoints = CheckpointManager.GetCheckpointCount(),
+		DataQueueSize = DataHandler.GetQueueStatus().Size
+	}
 
-    for _ in pairs(playerSessions) do
-        status.ActivePlayers = status.ActivePlayers + 1
-    end
+	for _ in pairs(playerSessions) do
+		status.ActivePlayers = status.ActivePlayers + 1
+	end
 
-    return status
+	return status
 end
 
 -- Debug function
 local function DebugSystem()
-    if not Settings.DEBUG_MODE then return end
+	if not Settings.DEBUG_MODE then return end
 
-    Log("INFO", "=== System Debug ===")
-    Log("INFO", "Status: %s", isInitialized and "Initialized" or "Not Initialized")
+	Log("INFO", "=== System Debug ===")
+	Log("INFO", "Status: %s", isInitialized and "Initialized" or "Not Initialized")
 
-    local status = GetSystemStatus()
-    Log("INFO", "Active Players: %d", status.ActivePlayers)
-    Log("INFO", "Total Checkpoints: %d", status.TotalCheckpoints)
-    Log("INFO", "Data Queue Size: %d", status.DataQueueSize)
+	local status = GetSystemStatus()
+	Log("INFO", "Active Players: %d", status.ActivePlayers)
+	Log("INFO", "Total Checkpoints: %d", status.TotalCheckpoints)
+	Log("INFO", "Data Queue Size: %d", status.DataQueueSize)
 
-    CheckpointManager.DebugPrintCheckpoints()
+	CheckpointManager.DebugPrintCheckpoints()
 
-    Log("INFO", "=== End Debug ===")
+	Log("INFO", "=== End Debug ===")
 end
 
 -- Cleanup function
 local function Cleanup()
-    -- Force save all players
-    for userId, _ in pairs(playerSessions) do
-        ForceSavePlayerData(userId)
-    end
+	-- Force save all players
+	for userId, _ in pairs(playerSessions) do
+		ForceSavePlayerData(userId)
+	end
 
-    -- Cleanup sessions
-    for userId, _ in pairs(playerSessions) do
-        CleanupPlayerSession(userId)
-    end
+	-- Cleanup sessions
+	for userId, _ in pairs(playerSessions) do
+		CleanupPlayerSession(userId)
+	end
 
-    -- Cleanup modules
-    CheckpointManager.Cleanup()
-    DataHandler.Cleanup()
-    SecurityValidator.Cleanup()
-    RespawnHandler.Cleanup()
-    AutoSaveService.Cleanup()
+	-- Cleanup modules
+	CheckpointManager.Cleanup()
+	DataHandler.Cleanup()
+	SecurityValidator.Cleanup()
+	RespawnHandler.Cleanup()
+	AutoSaveService.Cleanup()
 
-    isInitialized = false
-    Log("INFO", "Server system cleaned up")
+	isInitialized = false
+	Log("INFO", "Server system cleaned up")
 end
 
 -- Handle admin command from client
 function OnAdminCommand(player, command, args)
-    if not isInitialized or not Settings.ENABLE_ADMIN_SYSTEM then
-        return
-    end
+	if not isInitialized or not Settings.ENABLE_ADMIN_SYSTEM then
+		return
+	end
 
-    Log("DEBUG", "Admin command from %s: %s", player.Name, command)
+	Log("DEBUG", "Admin command from %s: %s", player.Name, command)
 
-    -- Execute command through AdminManager
-    local success, result = AdminManager:ExecuteCommand(player, command, args)
+	-- Execute command through AdminManager
+	local success, result = AdminManager:ExecuteCommand(player, command, args)
 
-    -- Send result back to player
-    AdminCommandEvent:FireClient(player, success, result)
+	-- Send result back to player
+	AdminCommandEvent:FireClient(player, success, result)
 end
 
 -- Handle system status request
 function OnSystemStatusRequest(player)
-    if not isInitialized then
-        SystemStatusEvent:FireClient(player, false, "System not initialized")
-        return
-    end
+	if not isInitialized then
+		SystemStatusEvent:FireClient(player, false, "System not initialized")
+		return
+	end
 
-    -- Check if player is admin
-    if not AdminManager:IsAdmin(player) then
-        SystemStatusEvent:FireClient(player, false, "Admin access required")
-        return
-    end
+	-- Check if player is admin
+	if not AdminManager:IsAdmin(player) then
+		SystemStatusEvent:FireClient(player, false, "Admin access required")
+		return
+	end
 
-    local status = AdminManager:GetSystemStatus()
-    SystemStatusEvent:FireClient(player, true, status)
+	local status = AdminManager:GetSystemStatus()
+	SystemStatusEvent:FireClient(player, true, status)
 end
 
 -- Handle global data request
 function OnGlobalDataRequest(player, requestType, targetUser)
-    if not isInitialized or not Settings.ENABLE_ADMIN_SYSTEM then
-        GlobalDataEvent:FireClient(player, false, "System not available")
-        return
-    end
+	if not isInitialized or not Settings.ENABLE_ADMIN_SYSTEM then
+		GlobalDataEvent:FireClient(player, false, "System not available")
+		return
+	end
 
-    -- Check if player is admin
-    if not AdminManager:IsAdmin(player) then
-        GlobalDataEvent:FireClient(player, false, "Admin access required")
-        return
-    end
+	-- Check if player is admin
+	if not AdminManager:IsAdmin(player) then
+		GlobalDataEvent:FireClient(player, false, "Admin access required")
+		return
+	end
 
-    if requestType == "PLAYER_DATA" then
-        local result = AdminManager:GetPlayerData(targetUser)
-        GlobalDataEvent:FireClient(player, true, result)
-    elseif requestType == "GLOBAL_STATUS" then
-        local result = AdminManager:GetGlobalStatus()
-        GlobalDataEvent:FireClient(player, true, result)
-    else
-        GlobalDataEvent:FireClient(player, false, "Unknown request type")
-    end
+	if requestType == "PLAYER_DATA" then
+		local result = AdminManager:GetPlayerData(targetUser)
+		GlobalDataEvent:FireClient(player, true, result)
+	elseif requestType == "GLOBAL_STATUS" then
+		local result = AdminManager:GetGlobalStatus()
+		GlobalDataEvent:FireClient(player, true, result)
+	else
+		GlobalDataEvent:FireClient(player, false, "Unknown request type")
+	end
 end
 
 -- Export functions to global for external access (admin commands, etc.)
 _G.CheckpointServerMain = {
-    GetPlayerCheckpoint = GetPlayerCheckpoint,
-    UpdatePlayerDeathCount = UpdatePlayerDeathCount,
-    GetPlayerSession = GetPlayerSession,
-    ForceSavePlayerData = ForceSavePlayerData,
-    GetSystemStatus = GetSystemStatus,
-    DebugSystem = DebugSystem,
-    Cleanup = Cleanup
+	GetPlayerCheckpoint = GetPlayerCheckpoint,
+	UpdatePlayerDeathCount = UpdatePlayerDeathCount,
+	GetPlayerSession = GetPlayerSession,
+	ForceSavePlayerData = ForceSavePlayerData,
+	GetSystemStatus = GetSystemStatus,
+	DebugSystem = DebugSystem,
+	Cleanup = Cleanup
 }
 
 Log("INFO", "Module functions exported to _G.CheckpointServerMain")
 
 -- Initialize on script run
 if Initialize() then
-    Log("INFO", "Checkpoint System Server started successfully")
+	Log("INFO", "Checkpoint System Server started successfully")
 else
-    Log("ERROR", "Failed to start Checkpoint System Server")
+	Log("ERROR", "Failed to start Checkpoint System Server")
 end
