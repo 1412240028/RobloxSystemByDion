@@ -1,3 +1,0 @@
--- Checkpoint System V1.0 - Remote Event
--- Fired when a player successfully reaches a checkpoint
--- Parameters: player (Player), checkpointOrder (number), checkpointPart (BasePart)
