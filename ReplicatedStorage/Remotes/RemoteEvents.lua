@@ -19,6 +19,7 @@ local RemoteEvents = {
     -- Checkpoint Remote Events
     CheckpointTouchedEvent = CheckpointEventsFolder:FindFirstChild("CheckpointTouchedEvent"), -- RemoteEvent: Client -> Server
     CheckpointSyncEvent = CheckpointEventsFolder:FindFirstChild("CheckpointSyncEvent"), -- RemoteEvent: Server -> Client
+    ResetCheckpoints = CheckpointEventsFolder:FindFirstChild("ResetCheckpoints"), -- RemoteEvent: Client -> Server
 }
 
 -- Fallback warning if events not found
@@ -36,6 +37,10 @@ end
 
 if not RemoteEvents.CheckpointSyncEvent then
     warn("[RemoteEvents] CheckpointSyncEvent not found! Checkpoint system may not work properly.")
+end
+
+if not RemoteEvents.ResetCheckpoints then
+    warn("[RemoteEvents] ResetCheckpoints not found! Reset system may not work properly.")
 end
 
 -- Helper Functions
@@ -140,6 +145,25 @@ function RemoteEvents.OnCheckpointTouched(callback)
     end
     assert(typeof(callback) == "function", "callback must be function")
     return RemoteEvents.CheckpointTouchedEvent.OnServerEvent:Connect(callback)
+end
+
+-- Client: Fire reset request to server
+function RemoteEvents.FireReset()
+    if not RemoteEvents.ResetCheckpoints then
+        warn("[RemoteEvents] Cannot fire reset - ResetCheckpoints not found!")
+        return
+    end
+    RemoteEvents.ResetCheckpoints:FireServer()
+end
+
+-- Server: Connect to reset event
+function RemoteEvents.OnResetRequested(callback)
+    if not RemoteEvents.ResetCheckpoints then
+        warn("[RemoteEvents] Cannot connect to reset event - ResetCheckpoints not found!")
+        return function() end -- Return dummy function
+    end
+    assert(typeof(callback) == "function", "callback must be function")
+    return RemoteEvents.ResetCheckpoints.OnServerEvent:Connect(callback)
 end
 
 return RemoteEvents

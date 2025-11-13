@@ -1,4 +1,4 @@
--- SprintGUI.lua (FIXED BUTTON SHRINKING BUG)
+-- SprintGUI.lua (MODULEСCRIPT - FIXED AUTO-INIT BUG)
 -- Pure UI rendering & interaction
 -- Visual only, logic handled by SprintClient
 
@@ -23,15 +23,21 @@ local cooldownOverlay = nil
 
 local currentState = SharedTypes.UIState.OFF
 local isCooldown = false
+local isInitialized = false -- NEW: Prevent double initialization
 
--- NEW: Store original button size to prevent shrinking
+-- Store original button size to prevent shrinking
 local originalButtonSize = nil
 
 -- Client reference
 local sprintClient = nil
 
--- Initialize GUI
+-- Initialize GUI (MODIFIED - Manual call only)
 function SprintGUI.Init()
+	if isInitialized then
+		warn("[SprintGUI] Already initialized, skipping")
+		return
+	end
+	
 	print("[SprintGUI] Initializing GUI")
 
 	-- Create GUI structure
@@ -43,6 +49,7 @@ function SprintGUI.Init()
 	-- Set initial state
 	SprintGUI.UpdateVisualState(false)
 
+	isInitialized = true
 	print("[SprintGUI] GUI initialized")
 end
 
@@ -73,7 +80,7 @@ function SprintGUI.CreateGUI()
 	sprintButton.AutoButtonColor = false
 	sprintButton.Parent = mainFrame
 
-	-- NEW: Store original size
+	-- Store original size
 	originalButtonSize = sprintButton.Size
 
 	-- Corner radius
@@ -157,11 +164,18 @@ function SprintGUI.OnButtonPressed()
 	-- Request toggle through client reference
 	if sprintClient then
 		sprintClient.RequestToggle()
+	else
+		warn("[SprintGUI] SprintClient reference not set!")
 	end
 end
 
 -- Update visual state
 function SprintGUI.UpdateVisualState(isSprinting)
+	if not sprintButton then
+		warn("[SprintGUI] Cannot update visual state - GUI not initialized")
+		return
+	end
+	
 	local newState = isSprinting and SharedTypes.UIState.ON or SharedTypes.UIState.OFF
 	currentState = newState
 
@@ -194,6 +208,8 @@ end
 
 -- Show error state
 function SprintGUI.ShowError(message)
+	if not statusLabel or not sprintButton then return end
+	
 	statusLabel.Text = "ERROR"
 	sprintButton.BackgroundColor3 = Color3.new(1, 0, 0) -- Red
 
@@ -206,7 +222,7 @@ end
 function SprintGUI.AnimatePress(isPressed)
 	if not sprintButton or not originalButtonSize then return end
 
-	-- NEW: Always calculate from original size, not current size
+	-- Always calculate from original size, not current size
 	local targetScale = isPressed and Config.PRESS_SCALE or 1
 	local duration = isPressed and Config.PRESS_DURATION or Config.RELEASE_DURATION
 
@@ -231,6 +247,7 @@ end
 -- Set client reference
 function SprintGUI.SetClient(clientModule)
 	sprintClient = clientModule
+	print("[SprintGUI] Client reference set successfully")
 end
 
 -- Cleanup
@@ -240,10 +257,10 @@ function SprintGUI.Cleanup()
 		screenGui = nil
 	end
 	originalButtonSize = nil
+	isInitialized = false
 end
 
--- Initialize when script runs
-SprintGUI.Init()
+-- REMOVED: Auto-initialization
+-- GUI will be initialized manually by SprintClient
 
--- Ensure module returns properly
 return SprintGUI

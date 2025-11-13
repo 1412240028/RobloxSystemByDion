@@ -1,188 +1,215 @@
-    -- SprintClient.lua (MODIFIED FOR ROBUST RESPAWN)
-    -- Client-side controller & input handling
-    -- Logic & input, separate from GUI
+-- SprintClient.lua (FIXED REQUIRE ERROR)
+-- Client-side controller & input handling
+-- Logic & input, separate from GUI
 
-    local Players = game:GetService("Players")
-    local UserInputService = game:GetService("UserInputService")
-    local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    local Config = require(ReplicatedStorage.Config.Config)
-    local SharedTypes = require(ReplicatedStorage.Modules.SharedTypes)
-    local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Config = require(ReplicatedStorage.Config.Config)
+local SharedTypes = require(ReplicatedStorage.Modules.SharedTypes)
+local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 
-    local SprintClient = {}
+local SprintClient = {}
 
-    -- Private variables
-    local player = Players.LocalPlayer
-    local isSprinting = false
-    local lastRequestTime = 0
-    local throttleActive = false
-    local character = nil
-    local humanoid = nil
-    local isWaitingForSync = false -- NEW: Prevent duplicate requests
+-- Private variables
+local player = Players.LocalPlayer
+local isSprinting = false
+local lastRequestTime = 0
+local throttleActive = false
+local character = nil
+local humanoid = nil
+local isWaitingForSync = false
 
-    -- GUI reference (will be set by SprintGUI)
-    local sprintGUI = nil
+-- GUI reference (will be set by SprintGUI)
+local sprintGUI = nil
 
-    -- Initialize client
-    function SprintClient.Init()
-        print("[SprintClient] Initializing client for", player.Name)
+-- Initialize client
+function SprintClient.Init()
+	print("[SprintClient] Initializing client for", player.Name)
 
-        -- Set GUI reference
-        local success, SprintGUI = pcall(function()
-            return require(script.Parent.SprintGUI)
-        end)
+	-- FIXED: Load and initialize SprintGUI properly
+	local success, result = pcall(function()
+		-- Check if SprintGUI exists and is a ModuleScript
+		local guiModule = script.Parent:FindFirstChild("SprintGUI")
+		
+		if not guiModule then
+			error("SprintGUI not found in same folder as SprintClient")
+		end
+		
+		if not guiModule:IsA("ModuleScript") then
+			error("SprintGUI must be a ModuleScript, found: " .. guiModule.ClassName)
+		end
+		
+		return require(guiModule)
+	end)
 
-        if success and SprintGUI then
-            SprintGUI.SetClient(SprintClient)
-            SprintClient.SetGUI(SprintGUI)
-        else
-            warn("[SprintClient] Failed to load SprintGUI:", SprintGUI)
-        end
+	if success and result then
+		-- Set references
+		result.SetClient(SprintClient)
+		SprintClient.SetGUI(result)
+		
+		-- Initialize GUI after references are set
+		result.Init()
+		
+		print("[SprintClient] SprintGUI loaded and initialized successfully")
+	else
+		warn("[SprintClient] Failed to load SprintGUI:", result)
+		warn("[SprintClient] Make sure SprintGUI is a ModuleScript in the same folder!")
+	end
 
-        -- Wait for character
-        SprintClient.WaitForCharacter()
+	-- Wait for character
+	SprintClient.WaitForCharacter()
 
-        -- Setup input handling
-        SprintClient.SetupInputHandling()
+	-- Setup input handling
+	SprintClient.SetupInputHandling()
 
-        -- Connect to server sync
-        RemoteEvents.OnSyncReceived(SprintClient.OnSyncReceived)
+	-- Connect to server sync
+	RemoteEvents.OnSyncReceived(SprintClient.OnSyncReceived)
 
-        print("[SprintClient] Client initialized")
-    end
+	print("[SprintClient] Client initialized")
+end
 
-    -- Wait for character and setup
-    function SprintClient.WaitForCharacter()
-        local function onCharacterAdded(newCharacter)
-            character = newCharacter
-            humanoid = character:WaitForChild("Humanoid")
+-- Wait for character and setup
+function SprintClient.WaitForCharacter()
+	local function onCharacterAdded(newCharacter)
+		character = newCharacter
+		humanoid = character:WaitForChild("Humanoid")
 
-            -- NEW: Wait for server to send authoritative state
-            -- Don't send toggle request, just wait for sync
-            isWaitingForSync = true
-            lastRequestTime = 0
+		-- Wait for server to send authoritative state
+		isWaitingForSync = true
+		lastRequestTime = 0
 
-            print("[SprintClient] Character loaded - waiting for server sync...")
+		print("[SprintClient] Character loaded - waiting for server sync...")
 
-            -- NEW: Timeout fallback if server doesn't respond
-            task.delay(2, function()
-                if isWaitingForSync then
-                    warn("[SprintClient] Server sync timeout - requesting manual sync")
-                    -- Send current state as query (server will respond with correct state)
-                    RemoteEvents.FireToggle(isSprinting)
-                end
-            end)
-        end
+		-- Timeout fallback if server doesn't respond
+		task.delay(2, function()
+			if isWaitingForSync then
+				warn("[SprintClient] Server sync timeout - requesting manual sync")
+				RemoteEvents.FireToggle(isSprinting)
+			end
+		end)
+	end
 
-        if player.Character then
-            onCharacterAdded(player.Character)
-        end
+	if player.Character then
+		onCharacterAdded(player.Character)
+	end
 
-        player.CharacterAdded:Connect(onCharacterAdded)
-    end
+	player.CharacterAdded:Connect(onCharacterAdded)
+end
 
-    -- Setup input handling
-    function SprintClient.SetupInputHandling()
-        -- No keyboard input - using GUI button only
-        -- Mobile touch (handled by GUI)
-    end
+-- Setup input handling
+function SprintClient.SetupInputHandling()
+	-- No keyboard input - using GUI button only
+	-- Mobile touch (handled by GUI)
+end
 
-    -- Request sprint toggle
-    function SprintClient.RequestToggle()
-        if throttleActive then return end
-        if isWaitingForSync then 
-            warn("[SprintClient] Still waiting for server sync - ignoring toggle")
-            return 
-        end
+-- Request sprint toggle
+function SprintClient.RequestToggle()
+	if throttleActive then 
+		warn("[SprintClient] Toggle blocked: throttle active")
+		return 
+	end
+	
+	if isWaitingForSync then 
+		warn("[SprintClient] Still waiting for server sync - ignoring toggle")
+		return 
+	end
 
-        -- Local throttle check
-        local timeSinceLastRequest = tick() - lastRequestTime
-        if timeSinceLastRequest < Config.DEBOUNCE_TIME then
-            return
-        end
+	-- Local throttle check
+	local timeSinceLastRequest = tick() - lastRequestTime
+	if timeSinceLastRequest < Config.DEBOUNCE_TIME then
+		warn("[SprintClient] Toggle blocked: debounce time not elapsed")
+		return
+	end
 
-        -- Toggle state
-        local newState = not isSprinting
+	-- Toggle state
+	local newState = not isSprinting
 
-        -- Send request to server
-        RemoteEvents.FireToggle(newState)
+	print(string.format("[SprintClient] Requesting toggle: %s -> %s", tostring(isSprinting), tostring(newState)))
 
-        -- Update local state optimistically
-        SprintClient.SetLocalState(newState)
+	-- Send request to server
+	RemoteEvents.FireToggle(newState)
 
-        -- Start throttle
-        throttleActive = true
-        task.delay(Config.DEBOUNCE_TIME, function()
-            throttleActive = false
-        end)
+	-- Update local state optimistically
+	SprintClient.SetLocalState(newState)
 
-        lastRequestTime = tick()
-    end
+	-- Start throttle
+	throttleActive = true
+	task.delay(Config.DEBOUNCE_TIME, function()
+		throttleActive = false
+	end)
 
-    -- Handle server sync (MODIFIED)
-    function SprintClient.OnSyncReceived(syncData)
-        -- NEW: Clear waiting flag
-        isWaitingForSync = false
+	lastRequestTime = tick()
+end
 
-        -- Update local state from server (authoritative)
-        local previousState = isSprinting
-        SprintClient.SetLocalState(syncData.isSprinting)
+-- Handle server sync
+function SprintClient.OnSyncReceived(syncData)
+	-- Clear waiting flag
+	isWaitingForSync = false
 
-        -- Update GUI
-        if sprintGUI then
-            sprintGUI.UpdateVisualState(syncData.isSprinting)
-        end
+	-- Update local state from server (authoritative)
+	local previousState = isSprinting
+	SprintClient.SetLocalState(syncData.isSprinting)
 
-        -- NEW: Log state changes for debugging
-        if previousState ~= syncData.isSprinting then
-            print(string.format("[SprintClient] State synced from server: %s -> %s",
-                tostring(previousState), tostring(syncData.isSprinting)))
-        end
-    end
+	-- Update GUI
+	if sprintGUI then
+		sprintGUI.UpdateVisualState(syncData.isSprinting)
+	end
 
-    -- Set local sprint state
-    function SprintClient.SetLocalState(newState)
-        isSprinting = newState
+	-- Log state changes for debugging
+	if previousState ~= syncData.isSprinting then
+		print(string.format("[SprintClient] State synced from server: %s -> %s",
+			tostring(previousState), tostring(syncData.isSprinting)))
+	end
+end
 
-        -- Update GUI
-        if sprintGUI then
-            sprintGUI.UpdateVisualState(newState)
-        end
-    end
+-- Set local sprint state
+function SprintClient.SetLocalState(newState)
+	isSprinting = newState
 
-    -- Get current state
-    function SprintClient.GetCurrentState()
-        return isSprinting
-    end
+	-- Update GUI
+	if sprintGUI then
+		sprintGUI.UpdateVisualState(newState)
+	end
+end
 
-    -- Check if can toggle
-    function SprintClient.CanToggle()
-        return not throttleActive and not isWaitingForSync and character and humanoid
-    end
+-- Get current state
+function SprintClient.GetCurrentState()
+	return isSprinting
+end
 
-    -- Set GUI reference
-    function SprintClient.SetGUI(guiModule)
-        sprintGUI = guiModule
-    end
+-- Check if can toggle
+function SprintClient.CanToggle()
+	return not throttleActive and not isWaitingForSync and character and humanoid
+end
 
-    -- Handle request failure (called by GUI)
-    function SprintClient.OnRequestFailed()
-        -- Revert optimistic update
-        SprintClient.SetLocalState(not isSprinting)
-    end
+-- Set GUI reference
+function SprintClient.SetGUI(guiModule)
+	sprintGUI = guiModule
+	print("[SprintClient] GUI reference set")
+end
 
-    -- Cleanup
-    function SprintClient.Cleanup()
-        -- Disconnect connections if needed
-        character = nil
-        humanoid = nil
-        sprintGUI = nil
-        isWaitingForSync = false
-    end
+-- Handle request failure (called by GUI)
+function SprintClient.OnRequestFailed()
+	-- Revert optimistic update
+	SprintClient.SetLocalState(not isSprinting)
+	warn("[SprintClient] Request failed - state reverted")
+end
 
-    -- Initialize when script runs
-    SprintClient.Init()
+-- Cleanup
+function SprintClient.Cleanup()
+	if sprintGUI then
+		sprintGUI.Cleanup()
+	end
+	character = nil
+	humanoid = nil
+	sprintGUI = nil
+	isWaitingForSync = false
+end
 
-    return SprintClient
+-- Initialize when script runs
+SprintClient.Init()
+
+return SprintClient

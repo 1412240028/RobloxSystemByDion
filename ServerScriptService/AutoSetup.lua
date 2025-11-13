@@ -56,6 +56,7 @@ function AutoSetup.CreateFolders()
     -- StarterPlayer folders
     local starterScripts = AutoSetup.CreateFolder(StarterPlayer, "StarterPlayerScripts")
     AutoSetup.CreateFolder(starterScripts, "Sprint")
+    AutoSetup.CreateFolder(starterScripts, "Checkpoint")
 
     -- StarterGui folders
     AutoSetup.CreateFolder(StarterGui, "CheckpointUI")
@@ -138,6 +139,7 @@ function AutoSetup.CreateRemoteEvents()
     if checkpointEventsFolder then
         AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "CheckpointTouchedEvent", "RemoteEvent")
         AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "CheckpointSyncEvent", "RemoteEvent")
+        AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "ResetCheckpoints", "RemoteEvent")
     end
 
     print("[AutoSetup] Remote events created successfully!")
