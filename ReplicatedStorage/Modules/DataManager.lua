@@ -13,6 +13,8 @@ local DataManager = {}
 -- Private variables
 local dataStore = DataStoreService:GetDataStore(Config.DATASTORE_NAME)
 local playerDataCache = {} -- player -> data
+local saveQueue = {} -- Queue for save operations to prevent race conditions
+local isSaving = {} -- player -> boolean to prevent concurrent saves
 
 -- Create new unified player data structure
 function DataManager.CreatePlayerData(player)
@@ -78,10 +80,22 @@ function DataManager.UpdateDeathCount(player)
     data.deathCount = data.deathCount + 1
 end
 
--- Save player data to DataStore
+-- Save player data to DataStore (with queue system to prevent race conditions)
 function DataManager.SavePlayerData(player)
     local data = playerDataCache[player]
     if not data then return end
+
+    -- Prevent concurrent saves for the same player
+    if isSaving[player] then
+        -- Queue the save operation
+        if not saveQueue[player] then
+            saveQueue[player] = {}
+        end
+        table.insert(saveQueue[player], true) -- Just a marker
+        return
+    end
+
+    isSaving[player] = true
 
     local key = Config.DATASTORE_KEY_PREFIX .. tostring(data.userId)
     local saveData = {
@@ -105,6 +119,16 @@ function DataManager.SavePlayerData(player)
 
         if success then
             print(string.format("[DataManager] Saved data for %s", player.Name))
+            isSaving[player] = false
+
+            -- Process queued saves
+            if saveQueue[player] and #saveQueue[player] > 0 then
+                table.remove(saveQueue[player], 1)
+                task.spawn(function()
+                    DataManager.SavePlayerData(player)
+                end)
+            end
+
             return true
         else
             warn(string.format("[DataManager] Save attempt %d failed for %s: %s",
@@ -118,6 +142,7 @@ function DataManager.SavePlayerData(player)
 
     warn(string.format("[DataManager] Failed to save data for %s after %d attempts",
         player.Name, Config.SAVE_RETRY_ATTEMPTS))
+    isSaving[player] = false
     return false
 end
 

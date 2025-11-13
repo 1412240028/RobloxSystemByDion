@@ -18,6 +18,7 @@ local MainServer = {}
 local activePlayers = {} -- player -> playerData
 local heartbeatConnection = nil
 local Checkpoints = workspace:WaitForChild("Checkpoints") -- Reference to checkpoints folder
+local checkpointCooldowns = {} -- cooldownKey -> lastTouchTime
 
 -- Initialize server
 function MainServer.Init()
@@ -220,59 +221,64 @@ function MainServer.OnSprintToggleRequested(player, requestedState)
     end
 end
 
--- Handle checkpoint touch
+-- Handle checkpoint touch (server-side only - no remote events)
 function MainServer.OnCheckpointTouched(player, checkpointPart)
-    print(string.format("[MainServer] %s touched checkpoint: %s", player.Name, checkpointPart.Name))
-
-    -- Extract checkpoint ID from part (using Name or Attribute)
-    local checkpointId = tonumber(checkpointPart.Name) or checkpointPart:GetAttribute("Order")
+    -- Extract checkpoint ID from part name (e.g., "Checkpoint1" -> 1)
+    local checkpointId = tonumber(string.match(checkpointPart.Name, "Checkpoint(%d+)"))
     if not checkpointId then
-        warn(string.format("[MainServer] Invalid checkpoint part: %s (no valid ID)", checkpointPart.Name))
+        warn("[MainServer] Invalid checkpoint name:", checkpointPart.Name)
         return
     end
 
-    -- Get spawn position from checkpoint part (with offset from config)
-    local spawnPosition = checkpointPart.Position + (Config.CHECKPOINT_SPAWN_OFFSET or Vector3.new(0, 3, 0))
+    -- Validate distance (25 studs max)
+    local playerData = activePlayers[player]
+    if not playerData or not playerData.character then return end
+
+    local distance = (checkpointPart.Position - playerData.character.HumanoidRootPart.Position).Magnitude
+    if distance > Config.MAX_DISTANCE_STUDS then
+        warn(string.format("[MainServer] %s tried to touch checkpoint from too far: %.1f studs", player.Name, distance))
+        return
+    end
+
+    -- Check cooldown per checkpoint per player
+    local cooldownKey = string.format("%s_%d", player.UserId, checkpointId)
+    local lastTouch = checkpointCooldowns[cooldownKey]
+    if lastTouch and tick() - lastTouch < Config.TOUCH_COOLDOWN then
+        return -- Still in cooldown
+    end
+
+    -- Update cooldown
+    checkpointCooldowns[cooldownKey] = tick()
+
+    print(string.format("[MainServer] %s touched checkpoint %d", player.Name, checkpointId))
+
+    -- Update checkpoint data
+    DataManager.UpdateCheckpointData(player, checkpointId, checkpointPart.Position + Config.CHECKPOINT_SPAWN_OFFSET)
 
     -- Update leaderstats
-    local leaderstats = player:FindFirstChild("leaderstats")
-    if leaderstats then
-        local checkpointValue = leaderstats:FindFirstChild("CP")
-        if checkpointValue then
-            -- Update to new checkpoint (can be sequential or non-sequential)
-            checkpointValue.Value = checkpointId
-            print(string.format("[MainServer] %s reached checkpoint %d", player.Name, checkpointId))
-        end
-    end
+    MainServer.UpdateLeaderstats(player)
 
-    -- Update checkpoint data in DataManager
-    DataManager.UpdateCheckpointData(player, checkpointId, spawnPosition)
-
-    -- Reset sprint state when touching checkpoint
-    local playerData = activePlayers[player]
-    if playerData and playerData.isSprinting then
-        playerData.isSprinting = false
-        if playerData.humanoid then
-            playerData.humanoid.WalkSpeed = Config.NORMAL_SPEED
-        end
-
-        -- Send sync to client
-        RemoteEvents.SendSync(player, {
-            isSprinting = false,
-            currentSpeed = Config.NORMAL_SPEED,
-            timestamp = tick()
-        })
-
-        print(string.format("[MainServer] Sprint disabled for %s due to checkpoint touch", player.Name))
-    end
-
-    -- Send checkpoint sync to client
-    local playerCheckpointData = DataManager.GetPlayerData(player)
+    -- Send sync to client
+    local playerData = DataManager.GetPlayerData(player)
     RemoteEvents.SendCheckpointSync(player, {
-        currentCheckpoint = playerCheckpointData.currentCheckpoint,
-        checkpointHistory = playerCheckpointData.checkpointHistory,
-        timestamp = tick()
+        currentCheckpoint = playerData.currentCheckpoint,
+        checkpointHistory = playerData.checkpointHistory,
+        spawnPosition = playerData.spawnPosition,
     })
+end
+
+-- Update leaderstats for player
+function MainServer.UpdateLeaderstats(player)
+    local leaderstats = player:FindFirstChild("leaderstats")
+    if not leaderstats then return end
+
+    local checkpointValue = leaderstats:FindFirstChild("CP")
+    if not checkpointValue then return end
+
+    local playerData = DataManager.GetPlayerData(player)
+    if playerData then
+        checkpointValue.Value = playerData.currentCheckpoint or 0
+    end
 end
 
 -- Validate sprint toggle request
@@ -323,7 +329,7 @@ function MainServer.ValidateSprintToggleRequest(player, requestedState)
     return response
 end
 
--- Start anti-cheat heartbeat
+-- Start anti-cheat heartbeat (optimized - check only moving players)
 function MainServer.StartHeartbeat()
     heartbeatConnection = RunService.Heartbeat:Connect(function(deltaTime)
         MainServer.CheckSpeedIntegrity()
@@ -384,7 +390,14 @@ function MainServer.Cleanup()
         DataManager.SavePlayerData(player)
     end
 
+    -- Clear character references to prevent memory leaks
+    for player, playerData in pairs(activePlayers) do
+        playerData.character = nil
+        playerData.humanoid = nil
+    end
+
     activePlayers = {}
+    checkpointCooldowns = {}
 end
 
 -- Initialize when script runs

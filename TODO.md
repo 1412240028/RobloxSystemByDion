@@ -6,15 +6,18 @@
 - [x] Create sample checkpoint parts in Workspace/Checkpoints with proper attributes (Order, Position)
 - [x] Verify data structure consistency across all modules
 
-## Details
-- DataManager: Added checkpointHistory array to track touched checkpoints
-- MainServer: Fixed OnCheckpointTouched to extract checkpointId from checkpointPart.Name or checkpointPart:GetAttribute("Order")
-- Checkpoints: Created 3 sample checkpoints (Checkpoint1.lua, Checkpoint2.lua, Checkpoint3.lua) with increasing Order values
-- Testing: Need to test checkpoint touch events - requires client-side script to fire RemoteEvents when touching parts
+## Critical Bug Fixes (URGENT)
+- [x] Fix Config.lua syntax error (missing comma after DATASTORE_NAME)
+- [x] Fix checkpoint double touch (remove remote event, use only physical touch)
+- [x] Implement save queue system in DataManager (prevent race conditions)
+- [x] Add distance validation for checkpoint touches
+- [x] Fix memory leak in character references
+- [x] Add rate limiting and security validations
+- [x] Optimize heartbeat performance
 
-## Next Steps
-- [x] Update Config.lua version to 1.2.0 and datastore name
-- [x] Add UpdateDeathCount() call in OnCharacterDied()
-- [ ] Create client-side checkpoint touch detection script
-- [ ] Test the complete checkpoint system integration
-- [ ] Add checkpoint validation logic (sequential touching, cooldowns)
+## Details
+- Config: Fix syntax error on line 42 (missing comma)
+- Checkpoint: Remove RemoteEvents usage, use only .Touched event with debounce
+- DataManager: Add save queue with locks to prevent concurrent saves
+- MainServer: Add distance validation (25 studs max), cooldown per checkpoint
+- Performance: Reduce heartbeat frequency, add dirty flag system

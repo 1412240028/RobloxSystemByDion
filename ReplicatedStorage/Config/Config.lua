@@ -45,8 +45,8 @@ local Config = {
 	STATE_CHANGE_DURATION = 0.2,
 
 	-- Data Persistence
-	DATASTORE_NAME = "PlayerProgressData_v1"
-	DATASTORE_KEY_PREFIX = "Player_"
+	DATASTORE_NAME = "PlayerProgressData_v1",
+	DATASTORE_KEY_PREFIX = "Player_",
 	SAVE_RETRY_ATTEMPTS = 3,
 	SAVE_RETRY_BACKOFF = {1, 2, 4},
 	SAVE_RETRY_DELAY_BASE = 2,
