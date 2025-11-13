@@ -1,7 +1,7 @@
 -- MainServer.lua
 -- Unified server script for checkpoint and sprint systems
 -- HYBRID VERSION: Combines flexible checkpoint system with leaderstats & respawn
--- v1.2 - Best of both worlds
+-- v1.3 - Fixed checkpoint validation & cooldowns
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -18,11 +18,11 @@ local MainServer = {}
 local activePlayers = {} -- player -> playerData
 local heartbeatConnection = nil
 local Checkpoints = workspace:WaitForChild("Checkpoints") -- Reference to checkpoints folder
-local checkpointCooldowns = {} -- cooldownKey -> lastTouchTime
+local checkpointCooldowns = {} -- [userId][checkpointId] -> lastTouchTime
 
 -- Initialize server
 function MainServer.Init()
-    print("[MainServer] Initializing Unified System v1.2 (Hybrid)")
+    print("[MainServer] Initializing Unified System v1.3 (Fixed)")
 
     -- Setup player connections
     Players.PlayerAdded:Connect(MainServer.OnPlayerAdded)
@@ -30,7 +30,6 @@ function MainServer.Init()
 
     -- Setup remote event connections
     RemoteEvents.OnToggleRequested(MainServer.OnSprintToggleRequested)
-    RemoteEvents.OnCheckpointTouched(MainServer.OnCheckpointTouched)
 
     -- Setup physical checkpoint touch detection
     MainServer.SetupCheckpointTouches()
@@ -44,16 +43,18 @@ end
 -- Setup checkpoint touch detection
 function MainServer.SetupCheckpointTouches()
     for i, checkpoint in pairs(Checkpoints:GetChildren()) do
-        checkpoint.Touched:Connect(function(hit)
-            if hit.Parent:FindFirstChild("Humanoid") then
+        if checkpoint:IsA("BasePart") then
+            checkpoint.Touched:Connect(function(hit)
+                -- Check if hit part belongs to a character
                 local character = hit.Parent
-                local player = Players:GetPlayerFromCharacter(character)
+                if not character:FindFirstChild("Humanoid") then return end
                 
+                local player = Players:GetPlayerFromCharacter(character)
                 if player then
                     MainServer.OnCheckpointTouched(player, checkpoint)
                 end
             end)
-        end)
+        end
     end
     print("[MainServer] Checkpoint touch detection setup complete")
 end
@@ -122,7 +123,7 @@ function MainServer.SetupCharacter(player, character)
         humanoid.WalkSpeed = targetSpeed
 
         -- Respawn at last checkpoint if available
-        if playerData.spawnPosition then
+        if playerData.spawnPosition and playerData.spawnPosition ~= Vector3.new(0, 0, 0) then
             character:MoveTo(playerData.spawnPosition)
             print(string.format("[MainServer] %s respawned at checkpoint %d", 
                 player.Name, playerData.currentCheckpoint or 0))
@@ -182,6 +183,11 @@ function MainServer.OnPlayerRemoving(player)
         DataManager.CleanupPlayerData(player)
         activePlayers[player] = nil
     end
+    
+    -- ✅ NEW: Cleanup checkpoint cooldowns
+    if checkpointCooldowns[player.UserId] then
+        checkpointCooldowns[player.UserId] = nil
+    end
 end
 
 -- Handle sprint toggle request
@@ -221,64 +227,113 @@ function MainServer.OnSprintToggleRequested(player, requestedState)
     end
 end
 
--- Handle checkpoint touch (server-side only - no remote events)
-function MainServer.OnCheckpointTouched(player, checkpointPart)
-    -- Extract checkpoint ID from part name (e.g., "Checkpoint1" -> 1)
-    local checkpointId = tonumber(string.match(checkpointPart.Name, "Checkpoint(%d+)"))
-    if not checkpointId then
-        warn("[MainServer] Invalid checkpoint name:", checkpointPart.Name)
-        return
-    end
-
-    -- Validate distance (25 studs max)
+-- ✅ IMPROVED: Validate checkpoint touch with all security checks
+function MainServer.ValidateCheckpointTouch(player, checkpointPart, checkpointId)
+    local result = {success = false, reason = ""}
+    
+    -- Check if player data exists
     local playerData = activePlayers[player]
-    if not playerData or not playerData.character then return end
-
-    local distance = (checkpointPart.Position - playerData.character.HumanoidRootPart.Position).Magnitude
+    if not playerData then
+        result.reason = "Player data not found"
+        return result
+    end
+    
+    -- Check player alive
+    local character = playerData.character
+    local humanoid = playerData.humanoid
+    if not character or not humanoid or humanoid.Health <= 0 then
+        result.reason = "Player not alive"
+        return result
+    end
+    
+    -- Check if HumanoidRootPart exists
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        result.reason = "HumanoidRootPart not found"
+        return result
+    end
+    
+    -- ✅ Check distance validation (anti-exploit)
+    local distance = (hrp.Position - checkpointPart.Position).Magnitude
     if distance > Config.MAX_DISTANCE_STUDS then
-        warn(string.format("[MainServer] %s tried to touch checkpoint from too far: %.1f studs", player.Name, distance))
-        return
+        result.reason = string.format("Too far (%.1f studs)", distance)
+        return result
     end
-
-    -- Check cooldown per checkpoint per player
-    local cooldownKey = string.format("%s_%d", player.UserId, checkpointId)
-    local lastTouch = checkpointCooldowns[cooldownKey]
-    if lastTouch and tick() - lastTouch < Config.TOUCH_COOLDOWN then
-        return -- Still in cooldown
+    
+    -- ✅ Check cooldown per checkpoint per player
+    local now = tick()
+    local userId = player.UserId
+    
+    if not checkpointCooldowns[userId] then
+        checkpointCooldowns[userId] = {}
     end
-
-    -- Update cooldown
-    checkpointCooldowns[cooldownKey] = tick()
-
-    print(string.format("[MainServer] %s touched checkpoint %d", player.Name, checkpointId))
-
-    -- Update checkpoint data
-    DataManager.UpdateCheckpointData(player, checkpointId, checkpointPart.Position + Config.CHECKPOINT_SPAWN_OFFSET)
-
-    -- Update leaderstats
-    MainServer.UpdateLeaderstats(player)
-
-    -- Send sync to client
-    local playerData = DataManager.GetPlayerData(player)
-    RemoteEvents.SendCheckpointSync(player, {
-        currentCheckpoint = playerData.currentCheckpoint,
-        checkpointHistory = playerData.checkpointHistory,
-        spawnPosition = playerData.spawnPosition,
-    })
+    
+    local lastTouch = checkpointCooldowns[userId][checkpointId] or 0
+    if now - lastTouch < Config.TOUCH_COOLDOWN then
+        result.reason = "Cooldown active"
+        return result
+    end
+    
+    -- ✅ Update cooldown timestamp
+    checkpointCooldowns[userId][checkpointId] = now
+    
+    -- All checks passed
+    result.success = true
+    return result
 end
 
--- Update leaderstats for player
-function MainServer.UpdateLeaderstats(player)
-    local leaderstats = player:FindFirstChild("leaderstats")
-    if not leaderstats then return end
-
-    local checkpointValue = leaderstats:FindFirstChild("CP")
-    if not checkpointValue then return end
-
-    local playerData = DataManager.GetPlayerData(player)
-    if playerData then
-        checkpointValue.Value = playerData.currentCheckpoint or 0
+-- ✅ IMPROVED: Handle checkpoint touch with validation
+function MainServer.OnCheckpointTouched(player, checkpointPart)
+    -- Extract checkpoint ID from part name (supports multiple formats)
+    local checkpointId = tonumber(string.match(checkpointPart.Name, "%d+")) 
+                      or checkpointPart:GetAttribute("Order")
+    
+    if not checkpointId then
+        if Config.DEBUG_MODE then
+            warn(string.format("[MainServer] Invalid checkpoint part: %s (no valid ID)", checkpointPart.Name))
+        end
+        return
     end
+
+    -- ✅ Validate touch with all security checks
+    local validation = MainServer.ValidateCheckpointTouch(player, checkpointPart, checkpointId)
+    if not validation.success then
+        if Config.DEBUG_MODE then
+            warn(string.format("[MainServer] Touch rejected for %s at checkpoint %d: %s", 
+                player.Name, checkpointId, validation.reason))
+        end
+        return
+    end
+
+    -- Get spawn position with offset
+    local spawnPosition = checkpointPart.Position + Config.CHECKPOINT_SPAWN_OFFSET
+
+    -- Update checkpoint data in DataManager
+    DataManager.UpdateCheckpointData(player, checkpointId, spawnPosition)
+
+    -- Update leaderstats
+    local leaderstats = player:FindFirstChild("leaderstats")
+    if leaderstats then
+        local checkpointValue = leaderstats:FindFirstChild("CP")
+        if checkpointValue then
+            checkpointValue.Value = checkpointId
+        end
+    end
+
+    -- Send checkpoint sync to client
+    local playerCheckpointData = DataManager.GetPlayerData(player)
+    if playerCheckpointData then
+        RemoteEvents.SendCheckpointSync(player, {
+            currentCheckpoint = playerCheckpointData.currentCheckpoint,
+            checkpointHistory = playerCheckpointData.checkpointHistory,
+            spawnPosition = playerCheckpointData.spawnPosition,
+            timestamp = tick()
+        })
+    end
+
+    print(string.format("[MainServer] %s reached checkpoint %d (distance: %.1f studs)", 
+        player.Name, checkpointId, 
+        (player.Character.HumanoidRootPart.Position - checkpointPart.Position).Magnitude))
 end
 
 -- Validate sprint toggle request
@@ -329,7 +384,7 @@ function MainServer.ValidateSprintToggleRequest(player, requestedState)
     return response
 end
 
--- Start anti-cheat heartbeat (optimized - check only moving players)
+-- Start anti-cheat heartbeat
 function MainServer.StartHeartbeat()
     heartbeatConnection = RunService.Heartbeat:Connect(function(deltaTime)
         MainServer.CheckSpeedIntegrity()
