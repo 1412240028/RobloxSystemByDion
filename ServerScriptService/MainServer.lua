@@ -1,6 +1,7 @@
 -- MainServer.lua
 -- Unified server script for checkpoint and sprint systems
--- Combines all server-side logic into one centralized file
+-- HYBRID VERSION: Combines flexible checkpoint system with leaderstats & respawn
+-- v1.2 - Best of both worlds
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -9,7 +10,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Config.Config)
 local SharedTypes = require(ReplicatedStorage.Modules.SharedTypes)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
-
 local DataManager = require(ReplicatedStorage.Modules.DataManager)
 
 local MainServer = {}
@@ -17,10 +17,11 @@ local MainServer = {}
 -- Private variables
 local activePlayers = {} -- player -> playerData
 local heartbeatConnection = nil
+local Checkpoints = workspace:WaitForChild("Checkpoints") -- Reference to checkpoints folder
 
 -- Initialize server
 function MainServer.Init()
-    print("[MainServer] Initializing Unified System v1.0")
+    print("[MainServer] Initializing Unified System v1.2 (Hybrid)")
 
     -- Setup player connections
     Players.PlayerAdded:Connect(MainServer.OnPlayerAdded)
@@ -30,15 +31,53 @@ function MainServer.Init()
     RemoteEvents.OnToggleRequested(MainServer.OnSprintToggleRequested)
     RemoteEvents.OnCheckpointTouched(MainServer.OnCheckpointTouched)
 
+    -- Setup physical checkpoint touch detection
+    MainServer.SetupCheckpointTouches()
+
     -- Start anti-cheat heartbeat
     MainServer.StartHeartbeat()
 
     print("[MainServer] Unified System initialized successfully")
 end
 
+-- Setup checkpoint touch detection
+function MainServer.SetupCheckpointTouches()
+    for i, checkpoint in pairs(Checkpoints:GetChildren()) do
+        checkpoint.Touched:Connect(function(hit)
+            if hit.Parent:FindFirstChild("Humanoid") then
+                local character = hit.Parent
+                local player = Players:GetPlayerFromCharacter(character)
+                
+                if player then
+                    MainServer.OnCheckpointTouched(player, checkpoint)
+                end
+            end)
+        end)
+    end
+    print("[MainServer] Checkpoint touch detection setup complete")
+end
+
+-- Create leaderstats for player
+function MainServer.CreateLeaderstats(player)
+    local leaderstats = Instance.new("Folder")
+    leaderstats.Name = "leaderstats"
+    leaderstats.Parent = player
+    
+    local checkpointValue = Instance.new("IntValue")
+    checkpointValue.Name = "CP"
+    checkpointValue.Value = 0 -- Start at 0, will be updated when checkpoint is touched
+    checkpointValue.Parent = leaderstats
+    
+    print(string.format("[MainServer] Leaderstats created for %s", player.Name))
+    return checkpointValue
+end
+
 -- Handle player joining
 function MainServer.OnPlayerAdded(player)
     print("[MainServer] Player joined:", player.Name)
+
+    -- Create leaderstats
+    local checkpointValue = MainServer.CreateLeaderstats(player)
 
     -- Create player data
     local playerData = DataManager.CreatePlayerData(player)
@@ -46,6 +85,12 @@ function MainServer.OnPlayerAdded(player)
 
     -- Load saved data
     DataManager.LoadPlayerData(player)
+
+    -- Sync leaderstats with saved checkpoint data
+    local savedCheckpoint = playerData.currentCheckpoint
+    if savedCheckpoint then
+        checkpointValue.Value = savedCheckpoint
+    end
 
     -- Wait for character and setup
     player.CharacterAdded:Connect(function(character)
@@ -74,6 +119,13 @@ function MainServer.SetupCharacter(player, character)
         -- Apply saved sprint state
         local targetSpeed = playerData.isSprinting and Config.SPRINT_SPEED or Config.NORMAL_SPEED
         humanoid.WalkSpeed = targetSpeed
+
+        -- Respawn at last checkpoint if available
+        if playerData.spawnPosition then
+            character:MoveTo(playerData.spawnPosition)
+            print(string.format("[MainServer] %s respawned at checkpoint %d", 
+                player.Name, playerData.currentCheckpoint or 0))
+        end
 
         -- Force sync to client multiple times to ensure delivery
         local function sendSync()
@@ -106,12 +158,15 @@ function MainServer.OnCharacterDied(player)
     local playerData = activePlayers[player]
     if not playerData then return end
 
+    -- Update death count
+    DataManager.UpdateDeathCount(player)
+
     -- Keep sprint state for next respawn
     playerData.character = nil
     playerData.humanoid = nil
 
-    print(string.format("[MainServer] %s died - sprint state preserved: %s",
-        player.Name, playerData.isSprinting and "ON" or "OFF"))
+    print(string.format("[MainServer] %s died - sprint state preserved: %s (total deaths: %d)",
+        player.Name, playerData.isSprinting and "ON" or "OFF", playerData.deathCount or 0))
 end
 
 -- Handle player leaving
@@ -169,8 +224,29 @@ end
 function MainServer.OnCheckpointTouched(player, checkpointPart)
     print(string.format("[MainServer] %s touched checkpoint: %s", player.Name, checkpointPart.Name))
 
-    -- Update checkpoint data
-    DataManager.UpdateCheckpointData(player, checkpointPart)
+    -- Extract checkpoint ID from part (using Name or Attribute)
+    local checkpointId = tonumber(checkpointPart.Name) or checkpointPart:GetAttribute("Order")
+    if not checkpointId then
+        warn(string.format("[MainServer] Invalid checkpoint part: %s (no valid ID)", checkpointPart.Name))
+        return
+    end
+
+    -- Get spawn position from checkpoint part (with offset from config)
+    local spawnPosition = checkpointPart.Position + (Config.CHECKPOINT_SPAWN_OFFSET or Vector3.new(0, 3, 0))
+
+    -- Update leaderstats
+    local leaderstats = player:FindFirstChild("leaderstats")
+    if leaderstats then
+        local checkpointValue = leaderstats:FindFirstChild("CP")
+        if checkpointValue then
+            -- Update to new checkpoint (can be sequential or non-sequential)
+            checkpointValue.Value = checkpointId
+            print(string.format("[MainServer] %s reached checkpoint %d", player.Name, checkpointId))
+        end
+    end
+
+    -- Update checkpoint data in DataManager
+    DataManager.UpdateCheckpointData(player, checkpointId, spawnPosition)
 
     -- Reset sprint state when touching checkpoint
     local playerData = activePlayers[player]
@@ -190,11 +266,11 @@ function MainServer.OnCheckpointTouched(player, checkpointPart)
         print(string.format("[MainServer] Sprint disabled for %s due to checkpoint touch", player.Name))
     end
 
-    -- Send checkpoint sync
-    local checkpointData = DataManager.GetPlayerData(player).checkpointData
+    -- Send checkpoint sync to client
+    local playerCheckpointData = DataManager.GetPlayerData(player)
     RemoteEvents.SendCheckpointSync(player, {
-        currentCheckpoint = checkpointData.currentCheckpoint,
-        checkpointHistory = checkpointData.checkpointHistory,
+        currentCheckpoint = playerCheckpointData.currentCheckpoint,
+        checkpointHistory = playerCheckpointData.checkpointHistory,
         timestamp = tick()
     })
 end

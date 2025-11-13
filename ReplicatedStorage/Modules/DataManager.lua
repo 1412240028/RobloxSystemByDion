@@ -28,6 +28,7 @@ function DataManager.CreatePlayerData(player)
         speedViolations = 0,
         -- Checkpoint data
         currentCheckpoint = 0,
+        checkpointHistory = {},
         spawnPosition = Vector3.new(0, 0, 0),
         lastTouchTime = 0,
         deathCount = 0,
@@ -61,6 +62,12 @@ function DataManager.UpdateCheckpointData(player, checkpointId, spawnPosition)
     data.currentCheckpoint = checkpointId
     data.spawnPosition = spawnPosition or data.spawnPosition
     data.lastTouchTime = tick()
+
+    -- Add to checkpoint history if not already present
+    if not table.find(data.checkpointHistory, checkpointId) then
+        table.insert(data.checkpointHistory, checkpointId)
+        table.sort(data.checkpointHistory)
+    end
 end
 
 -- Update death count
@@ -84,6 +91,7 @@ function DataManager.SavePlayerData(player)
         speedViolations = data.speedViolations,
         -- Checkpoint data
         currentCheckpoint = data.currentCheckpoint,
+        checkpointHistory = data.checkpointHistory,
         spawnPosition = {data.spawnPosition.X, data.spawnPosition.Y, data.spawnPosition.Z},
         deathCount = data.deathCount,
         lastPlayedVersion = Config.VERSION
@@ -130,13 +138,14 @@ function DataManager.LoadPlayerData(player)
         data.toggleCount = loadedData.toggleCount or 0
         data.speedViolations = loadedData.speedViolations or 0
         data.currentCheckpoint = loadedData.currentCheckpoint or 0
+        data.checkpointHistory = loadedData.checkpointHistory or {}
         data.deathCount = loadedData.deathCount or 0
         if loadedData.spawnPosition then
             data.spawnPosition = Vector3.new(unpack(loadedData.spawnPosition))
         end
 
-        print(string.format("[DataManager] Loaded data for %s (sprint: %s, checkpoint: %d, deaths: %d)",
-            player.Name, tostring(data.isSprinting), data.currentCheckpoint, data.deathCount))
+        print(string.format("[DataManager] Loaded data for %s (sprint: %s, checkpoint: %d, history: %d, deaths: %d)",
+            player.Name, tostring(data.isSprinting), data.currentCheckpoint, #data.checkpointHistory, data.deathCount))
     else
         -- Use defaults
         warn(string.format("[DataManager] Load failed for %s, using defaults", player.Name))
@@ -144,6 +153,7 @@ function DataManager.LoadPlayerData(player)
         data.toggleCount = 0
         data.speedViolations = 0
         data.currentCheckpoint = 0
+        data.checkpointHistory = {}
         data.deathCount = 0
         data.spawnPosition = Vector3.new(0, 0, 0)
     end

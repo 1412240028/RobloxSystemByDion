@@ -4,7 +4,7 @@
 
 local Config = {
 	-- System Version
-	VERSION = "1.0.0",
+	VERSION = "1.2.0",
 	DATA_VERSION = 1,
 
 	-- Performance Settings
@@ -14,12 +14,12 @@ local Config = {
 	SAVE_TIME_MS = 500,
 
 	-- Speed Settings
-	NORMAL_SPEED = 16,
-	SPRINT_SPEED = 28,
+	NORMAL_SPEED = 22,
+	SPRINT_SPEED = 30,
 
 	-- Validation
-	MAX_ALLOWED_SPEED = 30,
-	SPEED_TOLERANCE = 2,
+	MAX_ALLOWED_SPEED = 35,
+	SPEED_TOLERANCE = 3,
 
 	-- Timing
 	DEBOUNCE_TIME = 0.2,
@@ -45,9 +45,10 @@ local Config = {
 	STATE_CHANGE_DURATION = 0.2,
 
 	-- Data Persistence
-	DATASTORE_KEY_PREFIX = "Player_",
-	DATASTORE_NAME = "UnifiedCheckpointSprint_v1",
+	DATASTORE_NAME = "PlayerProgressData_v1"
+	DATASTORE_KEY_PREFIX = "Player_"
 	SAVE_RETRY_ATTEMPTS = 3,
+	SAVE_RETRY_BACKOFF = {1, 2, 4},
 	SAVE_RETRY_DELAY_BASE = 2,
 	SAVE_THROTTLE_SECONDS = 10,
 	AUTO_SAVE_INTERVAL_SECONDS = 60,
@@ -55,7 +56,7 @@ local Config = {
 	MAX_QUEUE_SIZE = 100,
 
 	-- Anti-Cheat
-	HEARTBEAT_CHECK_INTERVAL = 0.5,
+	HEARTBEAT_CHECK_INTERVAL = 1,
 	SPEED_CHECK_TOLERANCE = 2,
 
 	-- Platform Detection
@@ -136,25 +137,19 @@ local Config = {
 	-- Admin UIDs (Add your UID and other admins here)
 	ADMIN_UIDS = {
 		[8806688001] = "OWNER", -- Owner
-		[9653762582] = "TESTER", -- Co-Owner/Test Account
-		-- Add more admin UIDs here as needed
+		[9653762582] = "TESTER", -- Co-Owner
 	},
 
 	-- Admin Commands Settings
 	ADMIN_COMMAND_COOLDOWN = 1, -- seconds
 	ADMIN_LOG_RETENTION = 100, -- max log entries
-	ADMIN_GLOBAL_DATASTORE = "CheckpointAdminData_v1",
+	ADMIN_GLOBAL_DATASTORE = "AdminData_v1",
 
 	-- Global Communication Settings
 	ENABLE_GLOBAL_ADMIN_COMMANDS = true,
-	GLOBAL_MESSAGE_TOPIC = "CheckpointAdminCommands",
-	GLOBAL_STATUS_TOPIC = "CheckpointSystemStatus",
-	GLOBAL_DATA_REQUEST_TOPIC = "CheckpointGlobalData",
-
-	-- API Settings (for external admin panels)
-	ENABLE_EXTERNAL_API = false, -- Set to true if using external admin tools
-	API_ENDPOINT_URL = "", -- Leave empty for Roblox-only operation
-	API_AUTH_KEY = "", -- Generate secure key for external access
+	GLOBAL_MESSAGE_TOPIC = "AdminCommands",
+	GLOBAL_STATUS_TOPIC = "AdminSystemStatus",
+	GLOBAL_DATA_REQUEST_TOPIC = "AdminGlobalData",
 }
 
 -- Validation functions
