@@ -213,9 +213,24 @@ function OnPlayerAdded(player)
 	-- Set up auto-save
 	SetupAutoSave(userId)
 
-	-- Spawn player at their last checkpoint
-	if session.CurrentCheckpoint > 0 then
+	-- Spawn player at their last checkpoint (unless in debug mode)
+	if session.CurrentCheckpoint > 0 and not Settings.DEBUG_MODE then
 		SpawnPlayerAtCheckpoint(player, session.CurrentCheckpoint)
+	elseif Settings.DEBUG_MODE then
+		-- In debug mode, spawn at checkpoint 1 for testing
+		Log("DEBUG", "Debug mode: Spawning %s at checkpoint 1 instead of saved checkpoint %d", player.Name, session.CurrentCheckpoint)
+		SpawnPlayerAtCheckpoint(player, 1)
+		-- Reset checkpoint to 1 for testing
+		session.CurrentCheckpoint = 1
+		SecurityValidator.SetCurrentCheckpoint(userId, 1)
+		-- Save the reset checkpoint
+		local resetData = {
+			checkpoint = 1,
+			deathCount = 0,
+			sessionStartTime = os.time(),
+			timestamp = os.time()
+		}
+		DataHandler.SaveCheckpoint(userId, resetData)
 	end
 
 	Log("DEBUG", "Player session created for %s: checkpoint=%d", player.Name, session.CurrentCheckpoint)
