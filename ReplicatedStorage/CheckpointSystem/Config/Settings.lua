@@ -85,9 +85,9 @@ local Settings = {
 
 	-- Admin UIDs (Add your UID and other admins here)
 	ADMIN_UIDS = {
-		[8806688001] = "OWNER", -- Owner
-		[9653762582] = "TESTER", -- Co-Owner/Test Account
-		-- Add more admin UIDs here as needed
+		[8806688001] = "OWNER", -- Your Roblox User ID (Black_Emperor12345)
+		[9653762582] = "ADMIN", -- Admin
+		
 	},
 
 	-- Admin Commands Settings

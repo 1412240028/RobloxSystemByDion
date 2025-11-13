@@ -1,4 +1,4 @@
--- Checkpoint System V1.0 - Server Main Script
+-- Checkpoint System V1.0 - Server Main Script (CORRECTED)
 -- Main server-side controller for the checkpoint system
 
 local Players = game:GetService("Players")
@@ -12,6 +12,8 @@ local SecurityValidator = require(game.ReplicatedStorage.CheckpointSystem.Module
 local RespawnHandler = require(game.ServerScriptService.CheckpointSystem.RespawnHandler)
 local AutoSaveService = require(game.ServerScriptService.CheckpointSystem.AutoSaveService)
 local AdminManager = require(game.ReplicatedStorage.CheckpointSystem.Modules.AdminManager)
+local HealthMonitor = require(game.ServerScriptService.CheckpointSystem.HealthMonitor)
+local DisasterRecovery = require(game.ServerScriptService.CheckpointSystem.DisasterRecovery)
 
 -- Remote events
 local CheckpointReachedEvent = game.ReplicatedStorage.CheckpointSystem.Remotes.CheckpointReached
@@ -20,9 +22,9 @@ local SystemStatusEvent = game.ReplicatedStorage.CheckpointSystem.Remotes.System
 local GlobalDataEvent = game.ReplicatedStorage.CheckpointSystem.Remotes.GlobalData
 
 -- Private variables
-local playerSessions = {} -- {userId: sessionData}
-local autoSaveConnections = {} -- {userId: connection}
-local isSaving = {} -- {userId: boolean} - Prevent multiple simultaneous saves
+local playerSessions = {}
+local autoSaveConnections = {}
+local isSaving = {}
 local isInitialized = false
 
 -- Logger utility
@@ -50,10 +52,41 @@ local function UpdatePlayerDeathCount(userId)
 	local session = playerSessions[userId]
 	if session then
 		session.DeathCount = session.DeathCount + 1
+		
+		-- Track respawn metric
+		HealthMonitor:IncrementMetric("respawns")
+		
 		Log("DEBUG", "Death count updated for %d: %d", userId, session.DeathCount)
 		return session.DeathCount
 	end
 	return 0
+end
+
+-- Spawn player at specific checkpoint
+local function SpawnPlayerAtCheckpoint(player, checkpointOrder)
+	-- Wait for character to load
+	local character = player.Character or player.CharacterAdded:Wait()
+
+	-- Wait for HumanoidRootPart
+	local humanoidRootPart = character:WaitForChild("HumanoidRootPart", 10)
+	if not humanoidRootPart then
+		Log("ERROR", "HumanoidRootPart not found for %s", player.Name)
+		return false
+	end
+
+	-- Get spawn position from CheckpointManager
+	local spawnPosition = CheckpointManager.GetSpawnPosition(checkpointOrder)
+	if not spawnPosition then
+		Log("WARN", "No spawn position for checkpoint %d, using default", checkpointOrder)
+		return false
+	end
+
+	-- Teleport player
+	task.wait(0.5)
+	humanoidRootPart.CFrame = CFrame.new(spawnPosition)
+
+	Log("INFO", "Spawned %s at checkpoint %d", player.Name, checkpointOrder)
+	return true
 end
 
 -- Initialize the server system
@@ -88,7 +121,7 @@ local function Initialize()
 		modulesInitialized = false
 	end
 
-	-- CRITICAL: Link RespawnHandler to ServerMain functions (avoid circular dependency)
+	-- CRITICAL: Link RespawnHandler to ServerMain functions
 	RespawnHandler.ServerMainModule = {
 		UpdatePlayerDeathCount = UpdatePlayerDeathCount,
 		GetPlayerCheckpoint = GetPlayerCheckpoint
@@ -102,6 +135,12 @@ local function Initialize()
 
 	-- Initialize Admin Manager
 	AdminManager:Init()
+
+	-- Initialize Health Monitoring
+	HealthMonitor:Init()
+
+	-- Initialize Disaster Recovery
+	DisasterRecovery:CheckAndRecover()
 
 	if not modulesInitialized then
 		Log("ERROR", "Failed to initialize one or more modules")
@@ -120,6 +159,22 @@ local function Initialize()
 
 	-- Start background services
 	StartBackgroundServices()
+
+	-- Periodic snapshots (every 30 minutes)
+	task.spawn(function()
+		while true do
+			task.wait(1800)
+			DisasterRecovery:CreateSnapshot()
+		end
+	end)
+
+	-- Mark healthy every 5 minutes
+	task.spawn(function()
+		while true do
+			task.wait(300)
+			DisasterRecovery:MarkHealthy()
+		end
+	end)
 
 	isInitialized = true
 	Log("INFO", "Checkpoint System Server initialized successfully")
@@ -158,7 +213,7 @@ function OnPlayerAdded(player)
 	-- Set up auto-save
 	SetupAutoSave(userId)
 
-	-- SPAWN PLAYER AT THEIR LAST CHECKPOINT
+	-- Spawn player at their last checkpoint
 	if session.CurrentCheckpoint > 0 then
 		SpawnPlayerAtCheckpoint(player, session.CurrentCheckpoint)
 	end
@@ -217,6 +272,9 @@ function OnCheckpointReached(player, checkpointOrder, checkpointPart)
 	-- Save data (async)
 	SavePlayerDataAsync(userId)
 
+	-- Track metric
+	HealthMonitor:IncrementMetric("checkpointTouches")
+
 	-- Fire event to all clients for effects/UI
 	CheckpointReachedEvent:FireAllClients(player, checkpointOrder, checkpointPart)
 
@@ -264,6 +322,13 @@ function SavePlayerDataAsync(userId)
 	-- Save asynchronously
 	task.spawn(function()
 		local success = DataHandler.SaveCheckpoint(userId, data)
+
+		-- Track metrics
+		if success then
+			HealthMonitor:IncrementMetric("saves")
+		else
+			HealthMonitor:IncrementMetric("saveFails")
+		end
 
 		-- Release lock
 		SecurityValidator.ReleaseSaveLock(userId)
@@ -351,7 +416,7 @@ local function SpawnPlayerAtCheckpoint(player, checkpointOrder)
 	end
 
 	-- Teleport player
-	task.wait(0.5) -- Small delay to ensure character is fully loaded
+	task.wait(0.5)
 	humanoidRootPart.CFrame = CFrame.new(spawnPosition)
 
 	Log("INFO", "Spawned %s at checkpoint %d", player.Name, checkpointOrder)
@@ -498,7 +563,7 @@ function OnGlobalDataRequest(player, requestType, targetUser)
 	end
 end
 
--- Export functions to global for external access (admin commands, etc.)
+-- Export functions to global for external access
 _G.CheckpointServerMain = {
 	GetPlayerCheckpoint = GetPlayerCheckpoint,
 	UpdatePlayerDeathCount = UpdatePlayerDeathCount,
@@ -511,9 +576,26 @@ _G.CheckpointServerMain = {
 
 Log("INFO", "Module functions exported to _G.CheckpointServerMain")
 
+-- ========================================
+-- CRITICAL: Game closing handler
+-- ========================================
+game:BindToClose(function()
+	print("[ServerMain] 🛑 Server closing, running graceful shutdown...")
+	
+	local result = DisasterRecovery:GracefulShutdown()
+	
+	print(string.format("[ServerMain] Shutdown complete: %d saved, %d failed", 
+		result.saved, result.failed))
+	
+	-- Give extra time for final saves
+	task.wait(5)
+end)
+
+-- ========================================
 -- Initialize on script run
+-- ========================================
 if Initialize() then
-	Log("INFO", "Checkpoint System Server started successfully")
+	Log("INFO", "✅ Checkpoint System Server started successfully")
 else
-	Log("ERROR", "Failed to start Checkpoint System Server")
+	Log("ERROR", "❌ Failed to start Checkpoint System Server")
 end

@@ -377,14 +377,19 @@ function RespawnHandler.TeleportCharacter(character, position)
 	return true
 end
 
--- Apply temporary shield/invulnerability
+-- Apply temporary shield/invulnerability with ACTUAL damage protection
 function RespawnHandler.ApplyTemporaryShield(character)
 	if not character then return end
-
+	
 	local humanoid = character:FindFirstChild("Humanoid")
 	if not humanoid then return end
-
-	-- Create shield effect (visual)
+	
+	Log("INFO", "Applying actual invulnerability shield to %s", character.Name)
+	
+	local shieldActive = true
+	local originalMaxHealth = humanoid.MaxHealth
+	
+	-- Create visual shield effect
 	local shieldPart = Instance.new("Part")
 	shieldPart.Name = "DeathLoopShield"
 	shieldPart.Size = Vector3.new(6, 6, 6)
@@ -393,34 +398,122 @@ function RespawnHandler.ApplyTemporaryShield(character)
 	shieldPart.CanCollide = false
 	shieldPart.Transparency = 0.7
 	shieldPart.Material = Enum.Material.ForceField
-	shieldPart.BrickColor = BrickColor.new("Bright blue")
-
+	shieldPart.Color = Color3.fromRGB(0, 170, 255)
+	
+	-- Add glow effect
+	local shield = Instance.new("SelectionSphere")
+	shield.SurfaceTransparency = 0.7
+	shield.SurfaceColor3 = Color3.fromRGB(0, 170, 255)
+	shield.Parent = shieldPart
+	
 	local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-	if humanoidRootPart then
-		shieldPart.CFrame = humanoidRootPart.CFrame
-		shieldPart.Parent = character
-
-		-- Follow character
-		local connection
-		connection = game:GetService("RunService").Heartbeat:Connect(function()
-			if humanoidRootPart and humanoidRootPart:IsDescendantOf(workspace) and shieldPart.Parent then
-				shieldPart.CFrame = humanoidRootPart.CFrame
-			else
-				if connection then connection:Disconnect() end
-				if shieldPart and shieldPart.Parent then shieldPart:Destroy() end
-			end
-		end)
-
-		-- Remove after duration
-		task.delay(Settings.TEMPORARY_SHIELD_DURATION, function()
-			if connection then connection:Disconnect() end
-			if shieldPart and shieldPart.Parent then
-				shieldPart:Destroy()
-			end
-		end)
+	if not humanoidRootPart then
+		Log("ERROR", "No HumanoidRootPart for shield")
+		return
 	end
-
-	Log("DEBUG", "Temporary shield applied for %d seconds", Settings.TEMPORARY_SHIELD_DURATION)
+	
+	shieldPart.CFrame = humanoidRootPart.CFrame
+	shieldPart.Parent = character
+	
+	-- 1. Follow character position
+	local followConnection = game:GetService("RunService").Heartbeat:Connect(function()
+		if humanoidRootPart and humanoidRootPart:IsDescendantOf(workspace) and shieldActive then
+			shieldPart.CFrame = humanoidRootPart.CFrame
+		end
+	end)
+	
+	-- 2. Block health decrease
+	local healthConnection = humanoid.HealthChanged:Connect(function(health)
+		if not shieldActive then return end
+		
+		if health < humanoid.MaxHealth then
+			-- RESTORE HEALTH IMMEDIATELY
+			humanoid.Health = humanoid.MaxHealth
+			
+			-- Visual feedback flash
+			local flash = shieldPart:Clone()
+			flash.Transparency = 0.3
+			flash.Parent = character
+			
+			local TweenService = game:GetService("TweenService")
+			local flashTween = TweenService:Create(flash, TweenInfo.new(0.3), {
+				Transparency = 1
+			})
+			flashTween:Play()
+			
+			game:GetService("Debris"):AddItem(flash, 0.3)
+			
+			Log("DEBUG", "Shield blocked damage for %s (health: %.1f)", character.Name, health)
+		end
+	end)
+	
+	-- 3. Prevent damage from Touched events (kill bricks, lava, etc.)
+	local touchConnections = {}
+	for _, part in ipairs(character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			local conn = part.Touched:Connect(function(hit)
+				if not shieldActive then return end
+				
+				-- Check if dangerous part
+				local isDangerous = hit:FindFirstChild("Dangerous") or 
+				                   hit.Name:lower():find("kill") or 
+				                   hit.Name:lower():find("lava") or
+				                   hit.Name:lower():find("death")
+				
+				if isDangerous then
+					-- Prevent damage by restoring health
+					if humanoid.Health < humanoid.MaxHealth then
+						humanoid.Health = humanoid.MaxHealth
+						Log("DEBUG", "Shield blocked dangerous part: %s", hit.Name)
+					end
+				end
+			end)
+			table.insert(touchConnections, conn)
+		end
+	end
+	
+	-- 4. Block StateType changes that could cause damage
+	local stateConnection = humanoid.StateChanged:Connect(function(oldState, newState)
+		if not shieldActive then return end
+		
+		-- Prevent falling damage state
+		if newState == Enum.HumanoidStateType.FallingDown or 
+		   newState == Enum.HumanoidStateType.Ragdoll then
+			humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end
+	end)
+	table.insert(touchConnections, stateConnection)
+	
+	-- 5. Remove shield after duration
+	task.delay(Settings.TEMPORARY_SHIELD_DURATION, function()
+		shieldActive = false
+		
+		-- Cleanup all connections
+		if followConnection then 
+			followConnection:Disconnect() 
+		end
+		if healthConnection then 
+			healthConnection:Disconnect() 
+		end
+		for _, conn in ipairs(touchConnections) do
+			conn:Disconnect()
+		end
+		
+		-- Animate shield removal
+		if shieldPart and shieldPart.Parent then
+			local TweenService = game:GetService("TweenService")
+			local tween = TweenService:Create(shieldPart, TweenInfo.new(0.5), {
+				Transparency = 1
+			})
+			tween:Play()
+			tween.Completed:Wait()
+			shieldPart:Destroy()
+		end
+		
+		Log("DEBUG", "Shield expired for %s", character.Name)
+	end)
+	
+	Log("INFO", "Invulnerability shield active for %d seconds", Settings.TEMPORARY_SHIELD_DURATION)
 end
 
 -- Set up character-specific connections
