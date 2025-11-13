@@ -7,8 +7,8 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Config = require(ReplicatedStorage.Sprint.Config)
-local SharedTypes = require(ReplicatedStorage.Sprint.SharedTypes)
+local Config = require(ReplicatedStorage.Config.Config)
+local SharedTypes = require(ReplicatedStorage.Modules.SharedTypes)
 
 local SprintGUI = {}
 

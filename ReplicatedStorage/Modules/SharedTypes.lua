@@ -67,6 +67,23 @@ local SharedTypes = {
         PC = "PC",
         MOBILE = "MOBILE",
         UNKNOWN = "UNKNOWN"
+    },
+
+    -- Checkpoint Data Structure
+    CheckpointData = {
+        id = 0,
+        position = Vector3.new(0, 0, 0),
+        isActive = false,
+        touchedBy = {}, -- list of player userIds
+        lastTouched = 0
+    },
+
+    -- Checkpoint Sync Data Structure
+    CheckpointSyncData = {
+        checkpointId = 0,
+        playerId = 0,
+        position = Vector3.new(0, 0, 0),
+        timestamp = 0
     }
 }
 

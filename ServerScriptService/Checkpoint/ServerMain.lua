@@ -1,2 +1,0 @@
--- ServerMain.lua
--- Main server script for the unified checkpoint and sprint system

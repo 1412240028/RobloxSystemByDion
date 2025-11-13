@@ -36,7 +36,7 @@ local Config = {
 
 	-- Data Persistence
 	DATASTORE_KEY_PREFIX = "Player_",
-	DATASTORE_NAME = "SprintSystem_v1",
+	DATASTORE_NAME = "UnifiedSystem_v1",
 	SAVE_RETRY_ATTEMPTS = 3,
 	SAVE_RETRY_DELAY_BASE = 2,
 
@@ -57,6 +57,12 @@ local Config = {
 
 	-- Logging
 	LOG_LEVEL = "INFO", -- DEBUG, INFO, WARN, ERROR
+
+	-- Checkpoint Settings
+	DEFAULT_SPAWN_POSITION = Vector3.new(0, 5, 0),
+	RESPAWN_DELAY = 2,
+	TOUCH_COOLDOWN = 1,
+	MAX_CHECKPOINTS = 100,
 }
 
 -- Dynamic platform detection (set on client)

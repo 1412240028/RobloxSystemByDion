@@ -7,9 +7,9 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Config = require(ReplicatedStorage.Sprint.Config)
-local SharedTypes = require(ReplicatedStorage.Sprint.SharedTypes)
-local RemoteEvents = require(ReplicatedStorage.Sprint.RemoteEvents)
+local Config = require(ReplicatedStorage.Config.Config)
+local SharedTypes = require(ReplicatedStorage.Modules.SharedTypes)
+local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 
 local SprintClient = {}
 

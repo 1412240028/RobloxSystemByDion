@@ -6,7 +6,7 @@ local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Settings = require(ReplicatedStorage.Checkpoint.Config.Settings)
+local Settings = require(ReplicatedStorage.Config.Settings)
 
 local DataManager = {}
 
