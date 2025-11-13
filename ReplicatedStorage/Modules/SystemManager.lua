@@ -4,7 +4,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Settings = require(ReplicatedStorage.Config.Settings)
+local Config = require(ReplicatedStorage.Config.Config)
 
 local SystemManager = {}
 
@@ -20,14 +20,14 @@ local systemStatus = {
 
 -- Logger utility
 local function Log(level, message, ...)
-    if not Settings.DEBUG_MODE and level == "DEBUG" then return end
+    if not Config.DEBUG_MODE and level == "DEBUG" then return end
 
     local prefix = "[SystemManager]"
     if level == "ERROR" then
         warn(prefix .. " " .. string.format(message, ...))
     elseif level == "WARN" then
         warn(prefix .. " " .. string.format(message, ...))
-    elseif level == "INFO" or (Settings.DEBUG_MODE and level == "DEBUG") then
+    elseif level == "INFO" or (Config.DEBUG_MODE and level == "DEBUG") then
         print(prefix .. " " .. string.format(message, ...))
     end
 end
@@ -37,7 +37,7 @@ function SystemManager:Init()
     Log("INFO", "Initializing unified checkpoint and sprint system...")
 
     -- Validate configuration
-    local configErrors = Settings.ValidateConfig()
+    local configErrors = Config.ValidateConfig()
     if #configErrors > 0 then
         Log("ERROR", "Configuration validation failed:")
         for _, error in ipairs(configErrors) do
@@ -63,10 +63,10 @@ end
 -- Build admin cache from settings
 function SystemManager:BuildAdminCache()
     adminCache = {}
-    for userId, permission in pairs(Settings.ADMIN_UIDS) do
+    for userId, permission in pairs(Config.ADMIN_UIDS) do
         adminCache[userId] = {
             permission = permission,
-            level = Settings.ADMIN_PERMISSION_LEVELS[permission] or 1,
+            level = Config.ADMIN_PERMISSION_LEVELS[permission] or 1,
             lastActive = 0
         }
     end
@@ -103,7 +103,7 @@ end
 
 -- Add admin at runtime (for owner-level operations)
 function SystemManager:AddAdmin(addedBy, userId, permission)
-    if not self:IsAdmin(addedBy) or self:GetAdminLevel(addedBy) < Settings.ADMIN_PERMISSION_LEVELS.OWNER then
+    if not self:IsAdmin(addedBy) or self:GetAdminLevel(addedBy) < Config.ADMIN_PERMISSION_LEVELS.OWNER then
         return false, "Insufficient permissions"
     end
 
@@ -111,18 +111,18 @@ function SystemManager:AddAdmin(addedBy, userId, permission)
         return false, "User is already an admin"
     end
 
-    if not Settings.ADMIN_PERMISSION_LEVELS[permission] then
+    if not Config.ADMIN_PERMISSION_LEVELS[permission] then
         return false, "Invalid permission level"
     end
 
     adminCache[userId] = {
         permission = permission,
-        level = Settings.ADMIN_PERMISSION_LEVELS[permission],
+        level = Config.ADMIN_PERMISSION_LEVELS[permission],
         lastActive = tick()
     }
 
     -- Update settings (runtime only, not persisted)
-    Settings.ADMIN_UIDS[userId] = permission
+    Config.ADMIN_UIDS[userId] = permission
 
     Log("INFO", "Admin added: %d (%s) by %s", userId, permission, addedBy.Name)
     return true, "Admin added successfully"
@@ -130,7 +130,7 @@ end
 
 -- Remove admin at runtime
 function SystemManager:RemoveAdmin(removedBy, userId)
-    if not self:IsAdmin(removedBy) or self:GetAdminLevel(removedBy) < Settings.ADMIN_PERMISSION_LEVELS.OWNER then
+    if not self:IsAdmin(removedBy) or self:GetAdminLevel(removedBy) < Config.ADMIN_PERMISSION_LEVELS.OWNER then
         return false, "Insufficient permissions"
     end
 
@@ -140,7 +140,7 @@ function SystemManager:RemoveAdmin(removedBy, userId)
 
     local oldPermission = adminCache[userId].permission
     adminCache[userId] = nil
-    Settings.ADMIN_UIDS[userId] = nil
+    Config.ADMIN_UIDS[userId] = nil
 
     Log("INFO", "Admin removed: %d (%s) by %s", userId, oldPermission, removedBy.Name)
     return true, "Admin removed successfully"
@@ -158,8 +158,8 @@ function SystemManager:GetSystemStatus()
         playerCount = systemStatus.playerCount,
         adminCount = #adminCache,
         lastUpdate = systemStatus.lastUpdate,
-        version = Settings.VERSION,
-        debugMode = Settings.DEBUG_MODE
+        version = Config.VERSION,
+        debugMode = Config.DEBUG_MODE
     }
 end
 
@@ -205,14 +205,14 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
             })
         end
         return true, playerList
-    elseif command == "add_admin" and adminLevel >= Settings.ADMIN_PERMISSION_LEVELS.OWNER then
+    elseif command == "add_admin" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.OWNER then
         if not args or #args < 2 then
             return false, "Usage: add_admin <userId> <permission>"
         end
         local targetUserId = tonumber(args[1])
         local permission = args[2]
         return self:AddAdmin(player, targetUserId, permission)
-    elseif command == "remove_admin" and adminLevel >= Settings.ADMIN_PERMISSION_LEVELS.OWNER then
+    elseif command == "remove_admin" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.OWNER then
         if not args or #args < 1 then
             return false, "Usage: remove_admin <userId>"
         end

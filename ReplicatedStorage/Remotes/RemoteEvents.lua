@@ -1,17 +1,24 @@
 -- RemoteEvents.lua
--- Centralized remote management
+-- Centralized remote management for multiple systems
 -- Avoid hardcoded remote names & type-safe communication
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- System folders
 local SprintFolder = ReplicatedStorage:WaitForChild("Sprint")
-local EventsFolder = SprintFolder:WaitForChild("Events")
+local SprintEventsFolder = SprintFolder:WaitForChild("RemoteEvents")
+
+local CheckpointFolder = ReplicatedStorage:WaitForChild("Checkpoint")
+local CheckpointEventsFolder = CheckpointFolder:WaitForChild("Remotes")
 
 local RemoteEvents = {
-    -- Remote Events (with fallback if not found)
-    SprintToggleEvent = EventsFolder:FindFirstChild("SprintToggleEvent"), -- RemoteEvent: Client -> Server
-    SprintSyncEvent = EventsFolder:FindFirstChild("SprintSyncEvent"), -- RemoteEvent: Server -> Client
-    CheckpointTouchedEvent = EventsFolder:FindFirstChild("CheckpointTouchedEvent"), -- RemoteEvent: Client -> Server
-    CheckpointSyncEvent = EventsFolder:FindFirstChild("CheckpointSyncEvent"), -- RemoteEvent: Server -> Client
+    -- Sprint Remote Events
+    SprintToggleEvent = SprintEventsFolder:FindFirstChild("SprintToggleEvent"), -- RemoteEvent: Client -> Server
+    SprintSyncEvent = SprintEventsFolder:FindFirstChild("SprintSyncEvent"), -- RemoteEvent: Server -> Client
+
+    -- Checkpoint Remote Events
+    CheckpointTouchedEvent = CheckpointEventsFolder:FindFirstChild("CheckpointTouchedEvent"), -- RemoteEvent: Client -> Server
+    CheckpointSyncEvent = CheckpointEventsFolder:FindFirstChild("CheckpointSyncEvent"), -- RemoteEvent: Server -> Client
 }
 
 -- Fallback warning if events not found

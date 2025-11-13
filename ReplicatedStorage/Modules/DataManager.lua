@@ -6,12 +6,12 @@ local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Settings = require(ReplicatedStorage.Config.Settings)
+local Config = require(ReplicatedStorage.Config.Config)
 
 local DataManager = {}
 
 -- Private variables
-local dataStore = DataStoreService:GetDataStore(Settings.DATASTORE_NAME)
+local dataStore = DataStoreService:GetDataStore(Config.DATASTORE_NAME)
 local playerDataCache = {} -- player -> data
 
 -- Create new unified player data structure
@@ -76,7 +76,7 @@ function DataManager.SavePlayerData(player)
     local data = playerDataCache[player]
     if not data then return end
 
-    local key = Settings.DATASTORE_KEY_PREFIX .. tostring(data.userId)
+    local key = Config.DATASTORE_KEY_PREFIX .. tostring(data.userId)
     local saveData = {
         -- Sprint data
         isSprinting = data.isSprinting,
@@ -86,11 +86,11 @@ function DataManager.SavePlayerData(player)
         currentCheckpoint = data.currentCheckpoint,
         spawnPosition = {data.spawnPosition.X, data.spawnPosition.Y, data.spawnPosition.Z},
         deathCount = data.deathCount,
-        lastPlayedVersion = Settings.VERSION
+        lastPlayedVersion = Config.VERSION
     }
 
     -- Retry logic with exponential backoff
-    for attempt = 1, Settings.SAVE_RETRY_ATTEMPTS do
+    for attempt = 1, Config.SAVE_RETRY_ATTEMPTS do
         local success, errorMessage = pcall(function()
             dataStore:SetAsync(key, saveData)
         end)
@@ -102,14 +102,14 @@ function DataManager.SavePlayerData(player)
             warn(string.format("[DataManager] Save attempt %d failed for %s: %s",
                 attempt, player.Name, errorMessage))
 
-            if attempt < Settings.SAVE_RETRY_ATTEMPTS then
-                task.wait(Settings.SAVE_RETRY_BACKOFF[attempt] or 2)
+            if attempt < Config.SAVE_RETRY_ATTEMPTS then
+                task.wait(Config.SAVE_RETRY_BACKOFF[attempt] or 2)
             end
         end
     end
 
     warn(string.format("[DataManager] Failed to save data for %s after %d attempts",
-        player.Name, Settings.SAVE_RETRY_ATTEMPTS))
+        player.Name, Config.SAVE_RETRY_ATTEMPTS))
     return false
 end
 
@@ -118,7 +118,7 @@ function DataManager.LoadPlayerData(player)
     local data = playerDataCache[player]
     if not data then return end
 
-    local key = Settings.DATASTORE_KEY_PREFIX .. tostring(data.userId)
+    local key = Config.DATASTORE_KEY_PREFIX .. tostring(data.userId)
 
     local success, loadedData = pcall(function()
         return dataStore:GetAsync(key)
