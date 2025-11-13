@@ -1,23 +1,14 @@
-# Checkpoint Logic Implementation TODO
+# Checkpoint UI Notifications & Multiplayer Racing Implementation TODO
 
 ## Tasks
-- [x] Update DataManager.lua to include `checkpointHistory` in player data structure
-- [x] Fix MainServer.lua OnCheckpointTouched function to extract checkpointId from checkpointPart and call UpdateCheckpointData correctly
-- [x] Create sample checkpoint parts in Workspace/Checkpoints with proper attributes (Order, Position)
-- [x] Verify data structure consistency across all modules
-
-## Critical Bug Fixes (URGENT)
-- [x] Fix Config.lua syntax error (missing comma after DATASTORE_NAME)
-- [x] Fix checkpoint double touch (remove remote event, use only physical touch)
-- [x] Implement save queue system in DataManager (prevent race conditions)
-- [x] Add distance validation for checkpoint touches
-- [x] Fix memory leak in character references
-- [x] Add rate limiting and security validations
-- [x] Optimize heartbeat performance
-
-## Details
-- Config: Fix syntax error on line 42 (missing comma)
-- Checkpoint: Remove RemoteEvents usage, use only .Touched event with debounce
-- DataManager: Add save queue with locks to prevent concurrent saves
-- MainServer: Add distance validation (25 studs max), cooldown per checkpoint
-- Performance: Reduce heartbeat frequency, add dirty flag system
+- [x] Update Config.lua with race settings (race duration, leaderboard size, notification settings)
+- [x] Extend DataManager.lua with race fields (raceTimes, bestTime, isRacing, raceStartTime)
+- [x] Add race events to RemoteEvents.lua (RaceStart, RaceEnd, LeaderboardUpdate, RaceNotification)
+- [x] Implement race logic in MainServer.lua (start/end race, time tracking, leaderboard management)
+- [x] Create CheckpointNotification.lua in StarterGui/CheckpointUI/
+- [x] Integrate race status display and notification triggers in CheckpointGUI.lua
+- [x] Update AutoSetup.lua to create race RemoteEvents
+- [x] Test race initialization and timing
+- [x] Verify leaderboard updates and persistence
+- [x] Test notification UI display
+- [x] Ensure compatibility with existing checkpoint system

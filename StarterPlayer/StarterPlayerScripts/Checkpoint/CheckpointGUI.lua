@@ -1,5 +1,5 @@
 -- CheckpointGUI.lua
--- UI for checkpoint system (reset button)
+-- UI for checkpoint system (reset button and race status)
 -- Similar to SprintGUI but for checkpoints
 
 local Players = game:GetService("Players")
@@ -9,6 +9,7 @@ local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Config.Config)
 local SharedTypes = require(ReplicatedStorage.Modules.SharedTypes)
+local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 
 local CheckpointGUI = {}
 
@@ -20,6 +21,7 @@ local screenGui = nil
 local resetButton = nil
 local statusLabel = nil
 local cooldownOverlay = nil
+local raceStatusLabel = nil
 
 local isCooldown = false
 local isInitialized = false

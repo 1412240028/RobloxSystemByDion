@@ -20,6 +20,12 @@ local RemoteEvents = {
     CheckpointTouchedEvent = CheckpointEventsFolder:FindFirstChild("CheckpointTouchedEvent"), -- RemoteEvent: Client -> Server
     CheckpointSyncEvent = CheckpointEventsFolder:FindFirstChild("CheckpointSyncEvent"), -- RemoteEvent: Server -> Client
     ResetCheckpoints = CheckpointEventsFolder:FindFirstChild("ResetCheckpoints"), -- RemoteEvent: Client -> Server
+
+    -- Race Remote Events
+    RaceStartEvent = CheckpointEventsFolder:FindFirstChild("RaceStartEvent"), -- RemoteEvent: Server -> Client
+    RaceEndEvent = CheckpointEventsFolder:FindFirstChild("RaceEndEvent"), -- RemoteEvent: Server -> Client
+    LeaderboardUpdateEvent = CheckpointEventsFolder:FindFirstChild("LeaderboardUpdateEvent"), -- RemoteEvent: Server -> Client
+    RaceNotificationEvent = CheckpointEventsFolder:FindFirstChild("RaceNotificationEvent"), -- RemoteEvent: Server -> Client
 }
 
 -- Fallback warning if events not found
@@ -41,6 +47,22 @@ end
 
 if not RemoteEvents.ResetCheckpoints then
     warn("[RemoteEvents] ResetCheckpoints not found! Reset system may not work properly.")
+end
+
+if not RemoteEvents.RaceStartEvent then
+    warn("[RemoteEvents] RaceStartEvent not found! Race system may not work properly.")
+end
+
+if not RemoteEvents.RaceEndEvent then
+    warn("[RemoteEvents] RaceEndEvent not found! Race system may not work properly.")
+end
+
+if not RemoteEvents.LeaderboardUpdateEvent then
+    warn("[RemoteEvents] LeaderboardUpdateEvent not found! Leaderboard may not work properly.")
+end
+
+if not RemoteEvents.RaceNotificationEvent then
+    warn("[RemoteEvents] RaceNotificationEvent not found! Notifications may not work properly.")
 end
 
 -- Helper Functions
@@ -164,6 +186,97 @@ function RemoteEvents.OnResetRequested(callback)
     end
     assert(typeof(callback) == "function", "callback must be function")
     return RemoteEvents.ResetCheckpoints.OnServerEvent:Connect(callback)
+end
+
+-- Server: Send race start to all clients
+function RemoteEvents.BroadcastRaceStart(raceData)
+    if not RemoteEvents.RaceStartEvent then
+        warn("[RemoteEvents] Cannot broadcast race start - RaceStartEvent not found!")
+        return
+    end
+    assert(typeof(raceData) == "table", "raceData must be table")
+    RemoteEvents.RaceStartEvent:FireAllClients(raceData)
+end
+
+-- Server: Send race end to all clients
+function RemoteEvents.BroadcastRaceEnd(raceResults)
+    if not RemoteEvents.RaceEndEvent then
+        warn("[RemoteEvents] Cannot broadcast race end - RaceEndEvent not found!")
+        return
+    end
+    assert(typeof(raceResults) == "table", "raceResults must be table")
+    RemoteEvents.RaceEndEvent:FireAllClients(raceResults)
+end
+
+-- Server: Send leaderboard update to all clients
+function RemoteEvents.BroadcastLeaderboardUpdate(leaderboard)
+    if not RemoteEvents.LeaderboardUpdateEvent then
+        warn("[RemoteEvents] Cannot broadcast leaderboard - LeaderboardUpdateEvent not found!")
+        return
+    end
+    assert(typeof(leaderboard) == "table", "leaderboard must be table")
+    RemoteEvents.LeaderboardUpdateEvent:FireAllClients(leaderboard)
+end
+
+-- Server: Send race notification to specific client
+function RemoteEvents.SendRaceNotification(player, notificationData)
+    if not RemoteEvents.RaceNotificationEvent then
+        warn("[RemoteEvents] Cannot send race notification - RaceNotificationEvent not found!")
+        return
+    end
+    assert(typeof(player) == "Instance" and player:IsA("Player"), "player must be Player instance")
+    assert(typeof(notificationData) == "table", "notificationData must be table")
+    RemoteEvents.RaceNotificationEvent:FireClient(player, notificationData)
+end
+
+-- Server: Send race notification to all clients
+function RemoteEvents.BroadcastRaceNotification(notificationData)
+    if not RemoteEvents.RaceNotificationEvent then
+        warn("[RemoteEvents] Cannot broadcast race notification - RaceNotificationEvent not found!")
+        return
+    end
+    assert(typeof(notificationData) == "table", "notificationData must be table")
+    RemoteEvents.RaceNotificationEvent:FireAllClients(notificationData)
+end
+
+-- Client: Connect to race start event
+function RemoteEvents.OnRaceStartReceived(callback)
+    if not RemoteEvents.RaceStartEvent then
+        warn("[RemoteEvents] Cannot connect to race start event - RaceStartEvent not found!")
+        return function() end -- Return dummy function
+    end
+    assert(typeof(callback) == "function", "callback must be function")
+    return RemoteEvents.RaceStartEvent.OnClientEvent:Connect(callback)
+end
+
+-- Client: Connect to race end event
+function RemoteEvents.OnRaceEndReceived(callback)
+    if not RemoteEvents.RaceEndEvent then
+        warn("[RemoteEvents] Cannot connect to race end event - RaceEndEvent not found!")
+        return function() end -- Return dummy function
+    end
+    assert(typeof(callback) == "function", "callback must be function")
+    return RemoteEvents.RaceEndEvent.OnClientEvent:Connect(callback)
+end
+
+-- Client: Connect to leaderboard update event
+function RemoteEvents.OnLeaderboardUpdateReceived(callback)
+    if not RemoteEvents.LeaderboardUpdateEvent then
+        warn("[RemoteEvents] Cannot connect to leaderboard update event - LeaderboardUpdateEvent not found!")
+        return function() end -- Return dummy function
+    end
+    assert(typeof(callback) == "function", "callback must be function")
+    return RemoteEvents.LeaderboardUpdateEvent.OnClientEvent:Connect(callback)
+end
+
+-- Client: Connect to race notification event
+function RemoteEvents.OnRaceNotificationReceived(callback)
+    if not RemoteEvents.RaceNotificationEvent then
+        warn("[RemoteEvents] Cannot connect to race notification event - RaceNotificationEvent not found!")
+        return function() end -- Return dummy function
+    end
+    assert(typeof(callback) == "function", "callback must be function")
+    return RemoteEvents.RaceNotificationEvent.OnClientEvent:Connect(callback)
 end
 
 return RemoteEvents

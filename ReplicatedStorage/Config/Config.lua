@@ -117,12 +117,32 @@ local Config = {
 	AUDIO_VOLUME = 0.5,
 	AUDIO_PITCH_VARIATION = 0.1,
 
+	-- Race Settings
+	RACE_DURATION_SECONDS = 300, -- 5 minutes max race time
+	LEADERBOARD_SIZE = 10, -- Top 10 players
+	RACE_START_DELAY = 3, -- Seconds before race starts
+	RACE_COOLDOWN_SECONDS = 30, -- Cooldown between races
+	MIN_PLAYERS_FOR_RACE = 2, -- Minimum players needed
+	MAX_RACE_PARTICIPANTS = 20, -- Maximum concurrent racers
+
+	-- Notification Settings
+	NOTIFICATION_FADE_TIME = 0.5,
+	NOTIFICATION_DISPLAY_TIME = 3,
+	NOTIFICATION_POSITION = UDim2.new(0.5, 0, 0.1, 0),
+	NOTIFICATION_SIZE = UDim2.new(0, 300, 0, 50),
+
+	-- Race UI Colors
+	RACE_ACTIVE_COLOR = Color3.fromRGB(0, 255, 0), -- Green
+	RACE_INACTIVE_COLOR = Color3.fromRGB(255, 255, 255), -- White
+	RACE_FINISHED_COLOR = Color3.fromRGB(255, 215, 0), -- Gold
+
 	-- Feature Flags
 	ENABLE_BACKUP_DATASTORE = true,
 	ENABLE_MIGRATION_SYSTEM = true,
 	ENABLE_DEATH_LOOP_PROTECTION = true,
 	ENABLE_SPAWN_VALIDATION = true,
 	ENABLE_RACE_CONDITION_LOCKS = true,
+	ENABLE_RACE_SYSTEM = true,
 
 	-- Admin System Settings
 	ENABLE_ADMIN_SYSTEM = true,

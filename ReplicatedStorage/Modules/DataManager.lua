@@ -34,7 +34,15 @@ function DataManager.CreatePlayerData(player)
         spawnPosition = Vector3.new(0, 0, 0),
         lastTouchTime = 0,
         deathCount = 0,
-        sessionStartTime = tick()
+        sessionStartTime = tick(),
+        -- Race data
+        raceTimes = {}, -- List of completed race times
+        bestTime = nil, -- Best race completion time
+        isRacing = false, -- Currently in a race
+        raceStartTime = 0, -- When current race started
+        raceCheckpoints = 0, -- Checkpoints collected in current race
+        totalRaces = 0, -- Total races participated in
+        racesWon = 0 -- Number of races won
     }
 
     playerDataCache[player] = data
@@ -80,6 +88,82 @@ function DataManager.UpdateDeathCount(player)
     data.deathCount = data.deathCount + 1
 end
 
+-- Update race data
+function DataManager.UpdateRaceData(player, raceTime, checkpointsCollected)
+    local data = playerDataCache[player]
+    if not data then return end
+
+    -- Record race completion
+    table.insert(data.raceTimes, raceTime)
+    data.totalRaces = data.totalRaces + 1
+    data.raceCheckpoints = checkpointsCollected
+
+    -- Update best time
+    if not data.bestTime or raceTime < data.bestTime then
+        data.bestTime = raceTime
+    end
+
+    -- Reset race state
+    data.isRacing = false
+    data.raceStartTime = 0
+end
+
+-- Start race for player
+function DataManager.StartRaceForPlayer(player)
+    local data = playerDataCache[player]
+    if not data then return end
+
+    data.isRacing = true
+    data.raceStartTime = tick()
+    data.raceCheckpoints = 0
+end
+
+-- End race for player
+function DataManager.EndRaceForPlayer(player, completed)
+    local data = playerDataCache[player]
+    if not data or not data.isRacing then return end
+
+    if completed then
+        local raceTime = tick() - data.raceStartTime
+        DataManager.UpdateRaceData(player, raceTime, data.raceCheckpoints)
+    else
+        -- Race failed/didn't complete
+        data.isRacing = false
+        data.raceStartTime = 0
+        data.raceCheckpoints = 0
+    end
+end
+
+-- Get race leaderboard
+function DataManager.GetRaceLeaderboard()
+    local leaderboard = {}
+
+    for player, data in pairs(playerDataCache) do
+        if data.bestTime then
+            table.insert(leaderboard, {
+                playerName = player.Name,
+                userId = data.userId,
+                bestTime = data.bestTime,
+                totalRaces = data.totalRaces,
+                racesWon = data.racesWon
+            })
+        end
+    end
+
+    -- Sort by best time (ascending)
+    table.sort(leaderboard, function(a, b)
+        return a.bestTime < b.bestTime
+    end)
+
+    -- Limit to leaderboard size
+    local Config = require(game.ReplicatedStorage.Config.Config)
+    while #leaderboard > Config.LEADERBOARD_SIZE do
+        table.remove(leaderboard)
+    end
+
+    return leaderboard
+end
+
 -- Save player data to DataStore (with queue system to prevent race conditions)
 function DataManager.SavePlayerData(player)
     local data = playerDataCache[player]
@@ -108,6 +192,11 @@ function DataManager.SavePlayerData(player)
         checkpointHistory = data.checkpointHistory,
         spawnPosition = {data.spawnPosition.X, data.spawnPosition.Y, data.spawnPosition.Z},
         deathCount = data.deathCount,
+        -- Race data
+        raceTimes = data.raceTimes,
+        bestTime = data.bestTime,
+        totalRaces = data.totalRaces,
+        racesWon = data.racesWon,
         lastPlayedVersion = Config.VERSION
     }
 
@@ -168,6 +257,11 @@ function DataManager.LoadPlayerData(player)
         if loadedData.spawnPosition then
             data.spawnPosition = Vector3.new(unpack(loadedData.spawnPosition))
         end
+        -- Race data
+        data.raceTimes = loadedData.raceTimes or {}
+        data.bestTime = loadedData.bestTime
+        data.totalRaces = loadedData.totalRaces or 0
+        data.racesWon = loadedData.racesWon or 0
 
         print(string.format("[DataManager] Loaded data for %s (sprint: %s, checkpoint: %d, history: %d, deaths: %d)",
             player.Name, tostring(data.isSprinting), data.currentCheckpoint, #data.checkpointHistory, data.deathCount))

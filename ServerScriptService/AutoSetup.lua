@@ -140,6 +140,12 @@ function AutoSetup.CreateRemoteEvents()
         AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "CheckpointTouchedEvent", "RemoteEvent")
         AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "CheckpointSyncEvent", "RemoteEvent")
         AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "ResetCheckpoints", "RemoteEvent")
+
+        -- Race remote events
+        AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "RaceStartEvent", "RemoteEvent")
+        AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "RaceEndEvent", "RemoteEvent")
+        AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "LeaderboardUpdateEvent", "RemoteEvent")
+        AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "RaceNotificationEvent", "RemoteEvent")
     end
 
     print("[AutoSetup] Remote events created successfully!")

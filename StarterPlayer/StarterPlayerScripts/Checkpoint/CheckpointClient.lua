@@ -20,8 +20,9 @@ local throttleActive = false
 local character = nil
 local humanoid = nil
 
--- GUI reference (will be set by CheckpointGUI)
+-- GUI references
 local checkpointGUI = nil
+local checkpointNotification = nil
 
 -- Initialize client
 function CheckpointClient.Init()
@@ -51,6 +52,31 @@ function CheckpointClient.Init()
 	else
 		warn("[CheckpointClient] Failed to load CheckpointGUI:", result)
 		warn("[CheckpointClient] Make sure CheckpointGUI is a ModuleScript in the same folder!")
+	end
+
+	-- Load and initialize CheckpointNotification
+	local notificationSuccess, notificationResult = pcall(function()
+		local notificationModule = script.Parent:FindFirstChild("CheckpointNotification")
+
+		if not notificationModule then
+			error("CheckpointNotification not found in same folder as CheckpointClient")
+		end
+
+		if not notificationModule:IsA("ModuleScript") then
+			error("CheckpointNotification must be a ModuleScript, found: " .. notificationModule.ClassName)
+		end
+
+		return require(notificationModule)
+	end)
+
+	if notificationSuccess and notificationResult then
+		notificationResult.Init()
+		checkpointNotification = notificationResult
+
+		print("[CheckpointClient] CheckpointNotification loaded and initialized successfully")
+	else
+		warn("[CheckpointClient] Failed to load CheckpointNotification:", notificationResult)
+		warn("[CheckpointClient] Make sure CheckpointNotification is a ModuleScript in the same folder!")
 	end
 
 	-- Wait for character

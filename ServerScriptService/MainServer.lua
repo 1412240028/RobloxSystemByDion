@@ -25,6 +25,13 @@ local playerTouchedCheckpoints = {} -- [userId][checkpointId] = true
 -- ✅ NEW: Anti-spam debounce (prevents log spam while standing on checkpoint)
 local checkpointDebounce = {} -- [userId][checkpointId] -> lastTouchTime
 
+-- Race system variables
+local raceActive = false
+local raceStartTime = 0
+local raceParticipants = {} -- player -> race data
+local raceCooldownEnd = 0
+local raceWinner = nil
+
 -- Initialize server
 function MainServer.Init()
 	print("[MainServer] Initializing Unified System v1.4 (One-Time Touch)")
@@ -42,6 +49,11 @@ function MainServer.Init()
 
 	-- Start anti-cheat heartbeat
 	MainServer.StartHeartbeat()
+
+	-- Initialize race system if enabled
+	if Config.ENABLE_RACE_SYSTEM then
+		MainServer.InitializeRaceSystem()
+	end
 
 	print("[MainServer] Unified System initialized successfully")
 end
@@ -374,9 +386,12 @@ function MainServer.OnCheckpointTouched(player, checkpointPart)
 		})
 	end
 
+	-- Check race finish if race is active
+	MainServer.CheckRaceFinish(player, checkpointId)
+
 	-- ✅ Log checkpoint touch ONCE
-	print(string.format("[MainServer] ✓ %s reached checkpoint %d (distance: %.1f studs)", 
-		player.Name, checkpointId, 
+	print(string.format("[MainServer] ✓ %s reached checkpoint %d (distance: %.1f studs)",
+		player.Name, checkpointId,
 		(player.Character.HumanoidRootPart.Position - checkpointPart.Position).Magnitude))
 end
 
@@ -514,11 +529,195 @@ function MainServer.CheckPlayerSpeedIntegrity(player)
 	return difference > Config.SPEED_TOLERANCE
 end
 
+-- Initialize race system
+function MainServer.InitializeRaceSystem()
+	print("[MainServer] Initializing race system")
+
+	-- Send initial leaderboard to all players
+	local leaderboard = DataManager.GetRaceLeaderboard()
+	RemoteEvents.BroadcastLeaderboardUpdate(leaderboard)
+
+	print("[MainServer] Race system initialized")
+end
+
+-- Start a race
+function MainServer.StartRace()
+	if raceActive then
+		warn("[MainServer] Race already active")
+		return false
+	end
+
+	if tick() < raceCooldownEnd then
+		warn("[MainServer] Race on cooldown")
+		return false
+	end
+
+	local playerCount = 0
+	for _ in pairs(activePlayers) do
+		playerCount = playerCount + 1
+	end
+
+	if playerCount < Config.MIN_PLAYERS_FOR_RACE then
+		warn(string.format("[MainServer] Not enough players for race: %d/%d", playerCount, Config.MIN_PLAYERS_FOR_RACE))
+		return false
+	end
+
+	-- Start race
+	raceActive = true
+	raceStartTime = tick() + Config.RACE_START_DELAY
+	raceParticipants = {}
+	raceWinner = nil
+
+	-- Prepare participants
+	local participantCount = 0
+	for player, playerData in pairs(activePlayers) do
+		if participantCount < Config.MAX_RACE_PARTICIPANTS then
+			DataManager.StartRaceForPlayer(player)
+			raceParticipants[player] = {
+				startTime = raceStartTime,
+				checkpoints = 0,
+				finished = false
+			}
+			participantCount = participantCount + 1
+		end
+	end
+
+	-- Broadcast race start
+	RemoteEvents.BroadcastRaceStart({
+		startTime = raceStartTime,
+		participantCount = participantCount,
+		maxTime = Config.RACE_DURATION_SECONDS
+	})
+
+	-- Schedule race timeout
+	task.delay(Config.RACE_DURATION_SECONDS, function()
+		if raceActive then
+			MainServer.EndRace(false)
+		end
+	end)
+
+	print(string.format("[MainServer] Race started with %d participants", participantCount))
+	return true
+end
+
+-- End a race
+function MainServer.EndRace(completed)
+	if not raceActive then return end
+
+	raceActive = false
+	raceCooldownEnd = tick() + Config.RACE_COOLDOWN_SECONDS
+
+	local results = {
+		completed = completed,
+		winner = raceWinner and raceWinner.Name or nil,
+		participants = {}
+	}
+
+	-- Process results
+	for player, raceData in pairs(raceParticipants) do
+		local playerData = activePlayers[player]
+		if playerData then
+			local finished = raceData.finished
+			DataManager.EndRaceForPlayer(player, finished)
+
+			table.insert(results.participants, {
+				playerName = player.Name,
+				finished = finished,
+				checkpoints = raceData.checkpoints,
+				time = finished and (raceData.finishTime - raceData.startTime) or nil
+			})
+		end
+	end
+
+	-- Update leaderboard
+	local leaderboard = DataManager.GetRaceLeaderboard()
+	RemoteEvents.BroadcastLeaderboardUpdate(leaderboard)
+
+	-- Broadcast race end
+	RemoteEvents.BroadcastRaceEnd(results)
+
+	print(string.format("[MainServer] Race ended - completed: %s, winner: %s",
+		tostring(completed), results.winner or "none"))
+end
+
+-- Check if player finished race (called when touching final checkpoint)
+function MainServer.CheckRaceFinish(player, checkpointId)
+	if not raceActive or not raceParticipants[player] then return end
+
+	local raceData = raceParticipants[player]
+	local totalCheckpoints = #Checkpoints:GetChildren()
+
+	if checkpointId >= totalCheckpoints and not raceData.finished then
+		raceData.finished = true
+		raceData.finishTime = tick()
+		raceData.checkpoints = checkpointId
+
+		-- Check if this player is the winner
+		if not raceWinner then
+			raceWinner = player
+			DataManager.UpdateRaceData(player, raceData.finishTime - raceData.startTime, checkpointId)
+			player.racesWon = (player.racesWon or 0) + 1
+
+			-- Send notification
+			RemoteEvents.SendRaceNotification(player, {
+				type = "winner",
+				message = "🏆 You won the race!",
+				time = raceData.finishTime - raceData.startTime
+			})
+
+			-- Check if all participants finished
+			local allFinished = true
+			for p, rd in pairs(raceParticipants) do
+				if not rd.finished then
+					allFinished = false
+					break
+				end
+			end
+
+			if allFinished then
+				MainServer.EndRace(true)
+			end
+		else
+			-- Send placement notification
+			local placement = 1
+			for p, rd in pairs(raceParticipants) do
+				if rd.finished and rd.finishTime < raceData.finishTime then
+					placement = placement + 1
+				end
+			end
+
+			RemoteEvents.SendRaceNotification(player, {
+				type = "finished",
+				message = string.format("🎯 Race finished! Position: %d", placement),
+				time = raceData.finishTime - raceData.startTime
+			})
+		end
+
+		print(string.format("[MainServer] %s finished race in position %d", player.Name, placement))
+	end
+end
+
+-- Get race status
+function MainServer.GetRaceStatus()
+	return {
+		active = raceActive,
+		startTime = raceStartTime,
+		timeRemaining = raceActive and math.max(0, Config.RACE_DURATION_SECONDS - (tick() - raceStartTime)) or 0,
+		participantCount = #raceParticipants,
+		winner = raceWinner and raceWinner.Name or nil
+	}
+end
+
 -- Cleanup on server shutdown
 function MainServer.Cleanup()
 	if heartbeatConnection then
 		heartbeatConnection:Disconnect()
 		heartbeatConnection = nil
+	end
+
+	-- End any active race
+	if raceActive then
+		MainServer.EndRace(false)
 	end
 
 	-- Save all player data
@@ -535,6 +734,7 @@ function MainServer.Cleanup()
 	activePlayers = {}
 	playerTouchedCheckpoints = {}
 	checkpointDebounce = {}
+	raceParticipants = {}
 end
 
 -- Initialize when script runs
