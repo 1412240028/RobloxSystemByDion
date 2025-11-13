@@ -245,4 +245,5 @@ end
 -- Initialize when script runs
 SprintGUI.Init()
 
+-- Ensure module returns properly
 return SprintGUI

@@ -63,7 +63,7 @@ local Config = {
 	IS_MOBILE = false, -- Will be set dynamically
 	IS_PC = true, -- Will be set dynamically
 
-	-- Default Keybind
+	-- Default Keybind (DEPRECATED - Using GUI button only)
 	DEFAULT_KEYBIND = Enum.KeyCode.LeftShift,
 
 	-- Error Messages
