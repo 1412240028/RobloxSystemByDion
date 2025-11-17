@@ -51,7 +51,7 @@ local Config = {
 	SAVE_RETRY_BACKOFF = {1, 2, 4},
 	SAVE_RETRY_DELAY_BASE = 2,
 	SAVE_THROTTLE_SECONDS = 10,
-	AUTO_SAVE_INTERVAL_SECONDS = 60,
+	AUTO_SAVE_INTERVAL = 30, -- Auto-save every 30 seconds
 	QUEUE_PROCESS_INTERVAL = 30,
 	MAX_QUEUE_SIZE = 100,
 
@@ -124,6 +124,9 @@ local Config = {
 	RACE_COOLDOWN_SECONDS = 30, -- Cooldown between races
 	MIN_PLAYERS_FOR_RACE = 2, -- Minimum players needed
 	MAX_RACE_PARTICIPANTS = 20, -- Maximum concurrent racers
+	AUTO_RACE_INTERVAL_MINUTES = 10, -- Auto-race every 10 minutes
+	RACE_VOTE_THRESHOLD = 0.6, -- 60% of players need to vote
+	RACE_VOTE_COOLDOWN = 30, -- Seconds between votes
 
 	-- Notification Settings
 	NOTIFICATION_FADE_TIME = 0.5,

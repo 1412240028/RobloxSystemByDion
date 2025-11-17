@@ -15,6 +15,9 @@ local dataStore = DataStoreService:GetDataStore(Config.DATASTORE_NAME)
 local playerDataCache = {} -- player -> data
 local saveQueue = {} -- Queue for save operations to prevent race conditions
 local isSaving = {} -- player -> boolean to prevent concurrent saves
+local queueProcessorActive = {} -- player -> boolean to track if queue processor is running
+local queueMetrics = {} -- player -> {size = number, processed = number, errors = number}
+local dirtyPlayers = {} -- player -> boolean (true if data has changed and needs saving)
 
 -- Create new unified player data structure
 function DataManager.CreatePlayerData(player)
@@ -31,6 +34,7 @@ function DataManager.CreatePlayerData(player)
         -- Checkpoint data
         currentCheckpoint = 0,
         checkpointHistory = {},
+        touchedCheckpoints = {},
         spawnPosition = Vector3.new(0, 0, 0),
         lastTouchTime = 0,
         deathCount = 0,
@@ -62,6 +66,9 @@ function DataManager.UpdateSprintState(player, isSprinting)
     data.isSprinting = isSprinting
     data.lastToggleTime = tick()
     data.toggleCount = data.toggleCount + 1
+
+    -- Mark as dirty for auto-save
+    dirtyPlayers[player] = true
 end
 
 -- Update checkpoint data
@@ -78,6 +85,12 @@ function DataManager.UpdateCheckpointData(player, checkpointId, spawnPosition)
         table.insert(data.checkpointHistory, checkpointId)
         table.sort(data.checkpointHistory)
     end
+
+    -- Mark checkpoint as touched
+    data.touchedCheckpoints[checkpointId] = true
+
+    -- Mark as dirty for auto-save
+    dirtyPlayers[player] = true
 end
 
 -- Update death count
@@ -86,6 +99,9 @@ function DataManager.UpdateDeathCount(player)
     if not data then return end
 
     data.deathCount = data.deathCount + 1
+
+    -- Mark as dirty for auto-save
+    dirtyPlayers[player] = true
 end
 
 -- Update race data
@@ -106,6 +122,9 @@ function DataManager.UpdateRaceData(player, raceTime, checkpointsCollected)
     -- Reset race state
     data.isRacing = false
     data.raceStartTime = 0
+
+    -- Mark as dirty for auto-save
+    dirtyPlayers[player] = true
 end
 
 -- Start race for player
@@ -116,6 +135,9 @@ function DataManager.StartRaceForPlayer(player)
     data.isRacing = true
     data.raceStartTime = tick()
     data.raceCheckpoints = 0
+
+    -- Mark as dirty for auto-save
+    dirtyPlayers[player] = true
 end
 
 -- End race for player
@@ -131,6 +153,9 @@ function DataManager.EndRaceForPlayer(player, completed)
         data.isRacing = false
         data.raceStartTime = 0
         data.raceCheckpoints = 0
+
+        -- Mark as dirty for auto-save
+        dirtyPlayers[player] = true
     end
 end
 
@@ -169,6 +194,11 @@ function DataManager.SavePlayerData(player)
     local data = playerDataCache[player]
     if not data then return end
 
+    -- Initialize queue metrics if not exists
+    if not queueMetrics[player] then
+        queueMetrics[player] = {size = 0, processed = 0, errors = 0}
+    end
+
     -- Prevent concurrent saves for the same player
     if isSaving[player] then
         -- Queue the save operation
@@ -176,10 +206,14 @@ function DataManager.SavePlayerData(player)
             saveQueue[player] = {}
         end
         table.insert(saveQueue[player], true) -- Just a marker
+        queueMetrics[player].size = #saveQueue[player]
         return
     end
 
     isSaving[player] = true
+
+    -- Clear dirty flag on save attempt
+    dirtyPlayers[player] = false
 
     local key = Config.DATASTORE_KEY_PREFIX .. tostring(data.userId)
     local saveData = {
@@ -190,6 +224,7 @@ function DataManager.SavePlayerData(player)
         -- Checkpoint data
         currentCheckpoint = data.currentCheckpoint,
         checkpointHistory = data.checkpointHistory,
+        touchedCheckpoints = data.touchedCheckpoints or {},
         spawnPosition = {data.spawnPosition.X, data.spawnPosition.Y, data.spawnPosition.Z},
         deathCount = data.deathCount,
         -- Race data
@@ -210,18 +245,17 @@ function DataManager.SavePlayerData(player)
             print(string.format("[DataManager] Saved data for %s", player.Name))
             isSaving[player] = false
 
-            -- Process queued saves
-            if saveQueue[player] and #saveQueue[player] > 0 then
-                table.remove(saveQueue[player], 1)
-                task.spawn(function()
-                    DataManager.SavePlayerData(player)
-                end)
-            end
+            -- Process queued saves using proper queue processor
+            DataManager.ProcessSaveQueue(player)
 
             return true
         else
             warn(string.format("[DataManager] Save attempt %d failed for %s: %s",
                 attempt, player.Name, errorMessage))
+            queueMetrics[player].errors = queueMetrics[player].errors + 1
+
+            -- Restore dirty flag on failure
+            dirtyPlayers[player] = true
 
             if attempt < Config.SAVE_RETRY_ATTEMPTS then
                 task.wait(Config.SAVE_RETRY_BACKOFF[attempt] or 2)
@@ -233,6 +267,69 @@ function DataManager.SavePlayerData(player)
         player.Name, Config.SAVE_RETRY_ATTEMPTS))
     isSaving[player] = false
     return false
+end
+
+-- Process save queue for a player (background queue processor)
+function DataManager.ProcessSaveQueue(player)
+    -- Prevent multiple processors for same player
+    if queueProcessorActive[player] then
+        return
+    end
+
+    if not saveQueue[player] or #saveQueue[player] == 0 then
+        return
+    end
+
+    queueProcessorActive[player] = true
+
+    -- Process queue in background
+    task.spawn(function()
+        local processedCount = 0
+        local startTime = tick()
+
+        while saveQueue[player] and #saveQueue[player] > 0 do
+            -- Safety timeout: don't process for more than 30 seconds
+            if tick() - startTime > 30 then
+                warn(string.format("[DataManager] Queue processor timeout (30s) for %s", player.Name))
+                break
+            end
+
+            -- Check if player still exists and not currently saving
+            if not playerDataCache[player] or isSaving[player] then
+                break
+            end
+
+            -- Remove one item from queue
+            table.remove(saveQueue[player], 1)
+            queueMetrics[player].size = #saveQueue[player]
+            queueMetrics[player].processed = queueMetrics[player].processed + 1
+            processedCount = processedCount + 1
+
+            -- Small delay to prevent overwhelming DataStore
+            task.wait(0.1)
+
+            -- Try to save again
+            local success = DataManager.SavePlayerData(player)
+            if not success then
+                warn(string.format("[DataManager] Queue processor failed to save for %s", player.Name))
+                break -- Stop processing if save fails
+            end
+
+            -- Safety limit: don't process more than 10 items at once
+            if processedCount >= 10 then
+                warn(string.format("[DataManager] Queue processor item limit reached for %s", player.Name))
+                break
+            end
+        end
+
+        queueProcessorActive[player] = false
+        print(string.format("[DataManager] Queue processor finished for %s (processed: %d)", player.Name, processedCount))
+    end)
+end
+
+-- Get queue metrics for debugging
+function DataManager.GetQueueMetrics(player)
+    return queueMetrics[player] or {size = 0, processed = 0, errors = 0}
 end
 
 -- Load player data from DataStore
@@ -253,6 +350,7 @@ function DataManager.LoadPlayerData(player)
         data.speedViolations = loadedData.speedViolations or 0
         data.currentCheckpoint = loadedData.currentCheckpoint or 0
         data.checkpointHistory = loadedData.checkpointHistory or {}
+        data.touchedCheckpoints = loadedData.touchedCheckpoints or {}
         data.deathCount = loadedData.deathCount or 0
         if loadedData.spawnPosition then
             data.spawnPosition = Vector3.new(unpack(loadedData.spawnPosition))
@@ -281,6 +379,11 @@ end
 -- Cleanup player data
 function DataManager.CleanupPlayerData(player)
     playerDataCache[player] = nil
+    dirtyPlayers[player] = nil
+    saveQueue[player] = nil
+    isSaving[player] = nil
+    queueProcessorActive[player] = nil
+    queueMetrics[player] = nil
 end
 
 -- Get all active player data (for debugging)
@@ -293,6 +396,33 @@ function DataManager.SaveAllData()
     for player in pairs(playerDataCache) do
         DataManager.SavePlayerData(player)
     end
+end
+
+-- Mark player data as dirty (needs saving)
+function DataManager.MarkDirty(player)
+    dirtyPlayers[player] = true
+end
+
+-- Check if player data is dirty
+function DataManager.IsDirty(player)
+    return dirtyPlayers[player] == true
+end
+
+-- Auto-save loop (call this from MainServer.Init)
+function DataManager.StartAutoSave()
+    task.spawn(function()
+        while true do
+            task.wait(Config.AUTO_SAVE_INTERVAL or 30) -- Default 30 seconds
+
+            -- Save all dirty players
+            for player, isDirty in pairs(dirtyPlayers) do
+                if isDirty and playerDataCache[player] then
+                    DataManager.SavePlayerData(player)
+                end
+            end
+        end
+    end)
+    print("[DataManager] Auto-save system started")
 end
 
 return DataManager

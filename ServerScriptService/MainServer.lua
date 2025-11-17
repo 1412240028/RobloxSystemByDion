@@ -11,6 +11,8 @@ local Config = require(ReplicatedStorage.Config.Config)
 local SharedTypes = require(ReplicatedStorage.Modules.SharedTypes)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 local DataManager = require(ReplicatedStorage.Modules.DataManager)
+local RaceController = require(ReplicatedStorage.Modules.RaceController)
+local SystemManager = require(ReplicatedStorage.Modules.SystemManager)
 
 local MainServer = {}
 
@@ -25,12 +27,14 @@ local playerTouchedCheckpoints = {} -- [userId][checkpointId] = true
 -- ✅ NEW: Anti-spam debounce (prevents log spam while standing on checkpoint)
 local checkpointDebounce = {} -- [userId][checkpointId] -> lastTouchTime
 
--- Race system variables
-local raceActive = false
-local raceStartTime = 0
-local raceParticipants = {} -- player -> race data
-local raceCooldownEnd = 0
-local raceWinner = nil
+-- ✅ NEW: Track all connections per player to prevent memory leaks
+local playerConnections = {} -- [player] = {connection1, connection2, ...}
+
+-- ✅ CRITICAL FIX: Auto-save system variables
+local autoSaveConnection = nil -- Heartbeat connection for auto-save
+local lastAutoSaveTime = 0 -- Track last auto-save time
+
+
 
 -- Initialize server
 function MainServer.Init()
@@ -43,6 +47,8 @@ function MainServer.Init()
 	-- Setup remote event connections
 	RemoteEvents.OnToggleRequested(MainServer.OnSprintToggleRequested)
 	RemoteEvents.OnResetRequested(MainServer.ResetPlayerCheckpoints)
+	RemoteEvents.OnRaceQueueJoinReceived(MainServer.OnRaceQueueJoin)
+	RemoteEvents.OnRaceQueueLeaveReceived(MainServer.OnRaceQueueLeave)
 
 	-- Setup physical checkpoint touch detection
 	MainServer.SetupCheckpointTouches()
@@ -50,9 +56,24 @@ function MainServer.Init()
 	-- Start anti-cheat heartbeat
 	MainServer.StartHeartbeat()
 
+	-- Start auto-save system
+	DataManager.StartAutoSave()
+
+	-- Initialize admin system if enabled
+	if Config.ENABLE_ADMIN_SYSTEM then
+		local success = SystemManager:Init()
+		if success then
+			print("[MainServer] Admin system initialized successfully")
+		else
+			warn("[MainServer] Failed to initialize admin system")
+		end
+	end
+
 	-- Initialize race system if enabled
 	if Config.ENABLE_RACE_SYSTEM then
 		MainServer.InitializeRaceSystem()
+		RaceController.Init()
+		RaceController.StartAutoScheduler()
 	end
 
 	print("[MainServer] Unified System initialized successfully")
@@ -115,12 +136,17 @@ function MainServer.OnPlayerAdded(player)
 	-- Load saved data
 	DataManager.LoadPlayerData(player)
 
-	-- ✅ NEW: Restore touched checkpoints from saved history
-	if playerData.checkpointHistory then
-		for _, checkpointId in ipairs(playerData.checkpointHistory) do
-			playerTouchedCheckpoints[userId][checkpointId] = true
+-- ✅ NEW: Restore touched checkpoints from saved data
+	if playerData.touchedCheckpoints then
+		for checkpointId, touched in pairs(playerData.touchedCheckpoints) do
+			if touched then
+				playerTouchedCheckpoints[userId][checkpointId] = true
+			end
 		end
 	end
+
+	-- ✅ NEW: Add immediate save after data restoration to ensure persistence
+	DataManager.SavePlayerData(player)
 
 	-- Sync leaderstats with saved checkpoint data
 	local savedCheckpoint = playerData.currentCheckpoint
@@ -129,9 +155,15 @@ function MainServer.OnPlayerAdded(player)
 	end
 
 	-- Wait for character and setup
-	player.CharacterAdded:Connect(function(character)
+	local characterAddedConnection = player.CharacterAdded:Connect(function(character)
 		MainServer.SetupCharacter(player, character)
 	end)
+
+	-- ✅ NEW: Track connections for this player
+	if not playerConnections[player] then
+		playerConnections[player] = {}
+	end
+	table.insert(playerConnections[player], characterAddedConnection)
 
 	-- If character already exists
 	if player.Character then
@@ -184,9 +216,15 @@ function MainServer.SetupCharacter(player, character)
 	end
 
 	-- Handle character death
-	humanoid.Died:Connect(function()
+	local diedConnection = humanoid.Died:Connect(function()
 		MainServer.OnCharacterDied(player)
 	end)
+
+	-- ✅ NEW: Track connections for this player
+	if not playerConnections[player] then
+		playerConnections[player] = {}
+	end
+	table.insert(playerConnections[player], diedConnection)
 end
 
 -- Handle character death
@@ -225,6 +263,16 @@ function MainServer.OnPlayerRemoving(player)
 	end
 	if checkpointDebounce[userId] then
 		checkpointDebounce[userId] = nil
+	end
+
+	-- ✅ NEW: Disconnect all connections for this player to prevent memory leaks
+	if playerConnections[player] then
+		for _, connection in ipairs(playerConnections[player]) do
+			if connection and connection.Connected then
+				connection:Disconnect()
+			end
+		end
+		playerConnections[player] = nil
 	end
 end
 
@@ -387,35 +435,42 @@ function MainServer.OnCheckpointTouched(player, checkpointPart)
 	end
 
 	-- Check race finish if race is active
-	MainServer.CheckRaceFinish(player, checkpointId)
+	RaceController.CheckRaceFinish(player, checkpointId)
 
 	-- ✅ Log checkpoint touch ONCE
 	print(string.format("[MainServer] ✓ %s reached checkpoint %d (distance: %.1f studs)",
 		player.Name, checkpointId,
 		(player.Character.HumanoidRootPart.Position - checkpointPart.Position).Magnitude))
+
+	-- ✅ CRITICAL FIX: Immediate save after checkpoint touch to ensure persistence
+	local saveSuccess = DataManager.SavePlayerData(player)
+	if not saveSuccess then
+		warn(string.format("[MainServer] ⚠️ Failed to save checkpoint data for %s - data may be lost!", player.Name))
+	end
 end
 
 -- ✅ NEW: Reset player checkpoints (for reset button)
 function MainServer.ResetPlayerCheckpoints(player)
 	local userId = player.UserId
-	
+
 	-- Clear touched checkpoints
 	if playerTouchedCheckpoints[userId] then
 		playerTouchedCheckpoints[userId] = {}
 	end
-	
+
 	-- Clear debounce
 	if checkpointDebounce[userId] then
 		checkpointDebounce[userId] = {}
 	end
-	
+
 	-- Reset checkpoint data in DataManager
 	local playerData = activePlayers[player]
 	if playerData then
 		playerData.currentCheckpoint = 0
 		playerData.checkpointHistory = {}
+		playerData.touchedCheckpoints = {}
 		playerData.spawnPosition = Vector3.new(0, 0, 0)
-		
+
 		-- Update leaderstats
 		local leaderstats = player:FindFirstChild("leaderstats")
 		if leaderstats then
@@ -424,10 +479,10 @@ function MainServer.ResetPlayerCheckpoints(player)
 				checkpointValue.Value = 0
 			end
 		end
-		
-		-- Save reset data
+
+		-- ✅ NEW: Immediate save after reset to ensure persistence
 		DataManager.SavePlayerData(player)
-		
+
 		print(string.format("[MainServer] Reset checkpoints for %s", player.Name))
 	end
 end
@@ -484,7 +539,48 @@ end
 function MainServer.StartHeartbeat()
 	heartbeatConnection = RunService.Heartbeat:Connect(function(deltaTime)
 		MainServer.CheckSpeedIntegrity()
+		MainServer.CheckAutoSave() -- ✅ CRITICAL FIX: Add auto-save check to heartbeat
 	end)
+end
+
+-- ✅ CRITICAL FIX: Auto-save system using dirty flag system
+function MainServer.CheckAutoSave()
+	local currentTime = tick()
+	local autoSaveInterval = Config.AUTO_SAVE_INTERVAL_SECONDS or 60 -- Use config value with fallback
+
+	-- Only check auto-save every few seconds to avoid performance impact
+	if currentTime - lastAutoSaveTime < 5 then
+		return
+	end
+
+	-- Check if it's time for auto-save
+	if currentTime - lastAutoSaveTime >= autoSaveInterval then
+		MainServer.PerformAutoSave()
+		lastAutoSaveTime = currentTime
+	end
+end
+
+-- ✅ CRITICAL FIX: Perform auto-save for all dirty players
+function MainServer.PerformAutoSave()
+	local savedCount = 0
+	local failedCount = 0
+
+	for player, playerData in pairs(activePlayers) do
+		-- Only save if data is marked as dirty
+		if DataManager.IsDirty(player) then
+			local success = DataManager.SavePlayerData(player)
+			if success then
+				savedCount = savedCount + 1
+			else
+				failedCount = failedCount + 1
+				warn(string.format("[MainServer] Auto-save failed for %s", player.Name))
+			end
+		end
+	end
+
+	if savedCount > 0 or failedCount > 0 then
+		print(string.format("[MainServer] Auto-save completed: %d saved, %d failed", savedCount, failedCount))
+	end
 end
 
 -- Check speed integrity for all players
@@ -529,196 +625,42 @@ function MainServer.CheckPlayerSpeedIntegrity(player)
 	return difference > Config.SPEED_TOLERANCE
 end
 
+-- Handle race queue join request
+function MainServer.OnRaceQueueJoin(player)
+	local success, reason = RaceController.JoinRaceQueue(player)
+	if success then
+		print(string.format("[MainServer] %s joined race queue", player.Name))
+	else
+		warn(string.format("[MainServer] Failed to join race queue for %s: %s", player.Name, reason))
+	end
+end
+
+-- Handle race queue leave request
+function MainServer.OnRaceQueueLeave(player)
+	local success, reason = RaceController.LeaveRaceQueue(player)
+	if success then
+		print(string.format("[MainServer] %s left race queue", player.Name))
+	else
+		warn(string.format("[MainServer] Failed to leave race queue for %s: %s", player.Name, reason))
+	end
+end
+
 -- Initialize race system
 function MainServer.InitializeRaceSystem()
 	print("[MainServer] Initializing race system")
 
-	-- Send initial leaderboard to all players
-	local leaderboard = DataManager.GetRaceLeaderboard()
-	RemoteEvents.BroadcastLeaderboardUpdate(leaderboard)
+	-- Race system initialization is now handled by RaceController.Init()
 
 	print("[MainServer] Race system initialized")
 end
 
--- Start a race
-function MainServer.StartRace()
-	if raceActive then
-		warn("[MainServer] Race already active")
-		return false
-	end
 
-	if tick() < raceCooldownEnd then
-		warn("[MainServer] Race on cooldown")
-		return false
-	end
-
-	local playerCount = 0
-	for _ in pairs(activePlayers) do
-		playerCount = playerCount + 1
-	end
-
-	if playerCount < Config.MIN_PLAYERS_FOR_RACE then
-		warn(string.format("[MainServer] Not enough players for race: %d/%d", playerCount, Config.MIN_PLAYERS_FOR_RACE))
-		return false
-	end
-
-	-- Start race
-	raceActive = true
-	raceStartTime = tick() + Config.RACE_START_DELAY
-	raceParticipants = {}
-	raceWinner = nil
-
-	-- Prepare participants
-	local participantCount = 0
-	for player, playerData in pairs(activePlayers) do
-		if participantCount < Config.MAX_RACE_PARTICIPANTS then
-			DataManager.StartRaceForPlayer(player)
-			raceParticipants[player] = {
-				startTime = raceStartTime,
-				checkpoints = 0,
-				finished = false
-			}
-			participantCount = participantCount + 1
-		end
-	end
-
-	-- Broadcast race start
-	RemoteEvents.BroadcastRaceStart({
-		startTime = raceStartTime,
-		participantCount = participantCount,
-		maxTime = Config.RACE_DURATION_SECONDS
-	})
-
-	-- Schedule race timeout
-	task.delay(Config.RACE_DURATION_SECONDS, function()
-		if raceActive then
-			MainServer.EndRace(false)
-		end
-	end)
-
-	print(string.format("[MainServer] Race started with %d participants", participantCount))
-	return true
-end
-
--- End a race
-function MainServer.EndRace(completed)
-	if not raceActive then return end
-
-	raceActive = false
-	raceCooldownEnd = tick() + Config.RACE_COOLDOWN_SECONDS
-
-	local results = {
-		completed = completed,
-		winner = raceWinner and raceWinner.Name or nil,
-		participants = {}
-	}
-
-	-- Process results
-	for player, raceData in pairs(raceParticipants) do
-		local playerData = activePlayers[player]
-		if playerData then
-			local finished = raceData.finished
-			DataManager.EndRaceForPlayer(player, finished)
-
-			table.insert(results.participants, {
-				playerName = player.Name,
-				finished = finished,
-				checkpoints = raceData.checkpoints,
-				time = finished and (raceData.finishTime - raceData.startTime) or nil
-			})
-		end
-	end
-
-	-- Update leaderboard
-	local leaderboard = DataManager.GetRaceLeaderboard()
-	RemoteEvents.BroadcastLeaderboardUpdate(leaderboard)
-
-	-- Broadcast race end
-	RemoteEvents.BroadcastRaceEnd(results)
-
-	print(string.format("[MainServer] Race ended - completed: %s, winner: %s",
-		tostring(completed), results.winner or "none"))
-end
-
--- Check if player finished race (called when touching final checkpoint)
-function MainServer.CheckRaceFinish(player, checkpointId)
-	if not raceActive or not raceParticipants[player] then return end
-
-	local raceData = raceParticipants[player]
-	local totalCheckpoints = #Checkpoints:GetChildren()
-
-	if checkpointId >= totalCheckpoints and not raceData.finished then
-		raceData.finished = true
-		raceData.finishTime = tick()
-		raceData.checkpoints = checkpointId
-
-		local placement = 1
-		-- Check if this player is the winner
-		if not raceWinner then
-			raceWinner = player
-			DataManager.UpdateRaceData(player, raceData.finishTime - raceData.startTime, checkpointId)
-			player.racesWon = (player.racesWon or 0) + 1
-
-			-- Send notification
-			RemoteEvents.SendRaceNotification(player, {
-				type = "winner",
-				message = "🏆 You won the race!",
-				time = raceData.finishTime - raceData.startTime
-			})
-
-			-- Check if all participants finished
-			local allFinished = true
-			for p, rd in pairs(raceParticipants) do
-				if not rd.finished then
-					allFinished = false
-					break
-				end
-			end
-
-			if allFinished then
-				MainServer.EndRace(true)
-			end
-		else
-			-- Send placement notification
-			local placement = 1
-			for p, rd in pairs(raceParticipants) do
-				if rd.finished and rd.finishTime < raceData.finishTime then
-					placement = placement + 1
-				end
-			end
-
-			RemoteEvents.SendRaceNotification(player, {
-				type = "finished",
-				message = string.format("🎯 Race finished! Position: %d", placement),
-				time = raceData.finishTime - raceData.startTime
-			})
-		end
-
-		print(string.format("[MainServer] %s finished race in position %d", player.Name, placement))
-	end
-end
-
--- Get race status
-function MainServer.GetRaceStatus()
-	return {
-		active = raceActive,
-		startTime = raceStartTime,
-		timeRemaining = raceActive and math.max(0, Config.RACE_DURATION_SECONDS - (tick() - raceStartTime)) or 0,
-		participantCount = #raceParticipants,
-		winner = raceWinner and raceWinner.Name or nil
-	}
-end
 
 -- Cleanup on server shutdown
 function MainServer.Cleanup()
 	if heartbeatConnection then
 		heartbeatConnection:Disconnect()
 		heartbeatConnection = nil
-	end
-
-	-- End any active race
-	if raceActive then
-		MainServer.EndRace(false)
 	end
 
 	-- Save all player data
@@ -735,7 +677,6 @@ function MainServer.Cleanup()
 	activePlayers = {}
 	playerTouchedCheckpoints = {}
 	checkpointDebounce = {}
-	raceParticipants = {}
 end
 
 -- Initialize when script runs

@@ -218,6 +218,41 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
         end
         local targetUserId = tonumber(args[1])
         return self:RemoveAdmin(player, targetUserId)
+    elseif command == "startrace" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.MODERATOR then
+        -- Import RaceController here to avoid circular dependency
+        local RaceController = require(game.ReplicatedStorage.Modules.RaceController)
+        local canStart, reason = RaceController.CanStartRace()
+        if canStart then
+            local success = RaceController.StartRace()
+            if success then
+                return true, "Race started successfully"
+            else
+                return false, "Failed to start race"
+            end
+        else
+            return false, reason
+        end
+    elseif command == "endrace" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.MODERATOR then
+        local RaceController = require(game.ReplicatedStorage.Modules.RaceController)
+        local success = RaceController.ForceEndRace()
+        if success then
+            return true, "Race ended successfully"
+        else
+            return false, "No active race to end"
+        end
+    elseif command == "race" and args and args[1] == "status" then
+        local RaceController = require(game.ReplicatedStorage.Modules.RaceController)
+        local status = RaceController.GetRaceStatus()
+        local stats = RaceController.GetRaceStats()
+        return true, {
+            active = status.active,
+            participants = status.participantCount,
+            timeRemaining = status.timeRemaining,
+            winner = status.winner,
+            totalRaces = stats.totalRaces,
+            averageParticipants = string.format("%.1f", stats.averageParticipants),
+            cooldownRemaining = stats.cooldownRemaining > 0 and string.format("%.1f", stats.cooldownRemaining) or "0"
+        }
     else
         return false, "Unknown command or insufficient permissions"
     end

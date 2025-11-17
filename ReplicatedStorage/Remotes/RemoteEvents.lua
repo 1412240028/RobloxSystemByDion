@@ -26,6 +26,10 @@ local RemoteEvents = {
     RaceEndEvent = CheckpointEventsFolder:FindFirstChild("RaceEndEvent"), -- RemoteEvent: Server -> Client
     LeaderboardUpdateEvent = CheckpointEventsFolder:FindFirstChild("LeaderboardUpdateEvent"), -- RemoteEvent: Server -> Client
     RaceNotificationEvent = CheckpointEventsFolder:FindFirstChild("RaceNotificationEvent"), -- RemoteEvent: Server -> Client
+    RaceVoteEvent = CheckpointEventsFolder:FindFirstChild("RaceVoteEvent"), -- RemoteEvent: Client -> Server
+    RaceQueueJoinEvent = CheckpointEventsFolder:FindFirstChild("RaceQueueJoinEvent"), -- RemoteEvent: Client -> Server
+    RaceQueueLeaveEvent = CheckpointEventsFolder:FindFirstChild("RaceQueueLeaveEvent"), -- RemoteEvent: Client -> Server
+    RaceQueueUpdateEvent = CheckpointEventsFolder:FindFirstChild("RaceQueueUpdateEvent"), -- RemoteEvent: Server -> Client
 }
 
 -- Fallback warning if events not found
@@ -63,6 +67,22 @@ end
 
 if not RemoteEvents.RaceNotificationEvent then
     warn("[RemoteEvents] RaceNotificationEvent not found! Notifications may not work properly.")
+end
+
+if not RemoteEvents.RaceVoteEvent then
+    warn("[RemoteEvents] RaceVoteEvent not found! Race voting may not work properly.")
+end
+
+if not RemoteEvents.RaceQueueJoinEvent then
+    warn("[RemoteEvents] RaceQueueJoinEvent not found! Race queue joining may not work properly.")
+end
+
+if not RemoteEvents.RaceQueueLeaveEvent then
+    warn("[RemoteEvents] RaceQueueLeaveEvent not found! Race queue leaving may not work properly.")
+end
+
+if not RemoteEvents.RaceQueueUpdateEvent then
+    warn("[RemoteEvents] RaceQueueUpdateEvent not found! Race queue updates may not work properly.")
 end
 
 -- Helper Functions
@@ -277,6 +297,83 @@ function RemoteEvents.OnRaceNotificationReceived(callback)
     end
     assert(typeof(callback) == "function", "callback must be function")
     return RemoteEvents.RaceNotificationEvent.OnClientEvent:Connect(callback)
+end
+
+-- Client: Fire race vote to server
+function RemoteEvents.FireRaceVote()
+    if not RemoteEvents.RaceVoteEvent then
+        warn("[RemoteEvents] Cannot fire race vote - RaceVoteEvent not found!")
+        return
+    end
+    RemoteEvents.RaceVoteEvent:FireServer()
+end
+
+-- Server: Connect to race vote event
+function RemoteEvents.OnRaceVoteReceived(callback)
+    if not RemoteEvents.RaceVoteEvent then
+        warn("[RemoteEvents] Cannot connect to race vote event - RaceVoteEvent not found!")
+        return function() end -- Return dummy function
+    end
+    assert(typeof(callback) == "function", "callback must be function")
+    return RemoteEvents.RaceVoteEvent.OnServerEvent:Connect(callback)
+end
+
+-- Client: Fire race queue join to server
+function RemoteEvents.FireRaceQueueJoin()
+    if not RemoteEvents.RaceQueueJoinEvent then
+        warn("[RemoteEvents] Cannot fire race queue join - RaceQueueJoinEvent not found!")
+        return
+    end
+    RemoteEvents.RaceQueueJoinEvent:FireServer()
+end
+
+-- Client: Fire race queue leave to server
+function RemoteEvents.FireRaceQueueLeave()
+    if not RemoteEvents.RaceQueueLeaveEvent then
+        warn("[RemoteEvents] Cannot fire race queue leave - RaceQueueLeaveEvent not found!")
+        return
+    end
+    RemoteEvents.RaceQueueLeaveEvent:FireServer()
+end
+
+-- Server: Send race queue update to all clients
+function RemoteEvents.BroadcastRaceQueueUpdate(queueData)
+    if not RemoteEvents.RaceQueueUpdateEvent then
+        warn("[RemoteEvents] Cannot broadcast race queue update - RaceQueueUpdateEvent not found!")
+        return
+    end
+    assert(typeof(queueData) == "table", "queueData must be table")
+    RemoteEvents.RaceQueueUpdateEvent:FireAllClients(queueData)
+end
+
+-- Client: Connect to race queue update event
+function RemoteEvents.OnRaceQueueUpdateReceived(callback)
+    if not RemoteEvents.RaceQueueUpdateEvent then
+        warn("[RemoteEvents] Cannot connect to race queue update event - RaceQueueUpdateEvent not found!")
+        return function() end -- Return dummy function
+    end
+    assert(typeof(callback) == "function", "callback must be function")
+    return RemoteEvents.RaceQueueUpdateEvent.OnClientEvent:Connect(callback)
+end
+
+-- Server: Connect to race queue join event
+function RemoteEvents.OnRaceQueueJoinReceived(callback)
+    if not RemoteEvents.RaceQueueJoinEvent then
+        warn("[RemoteEvents] Cannot connect to race queue join event - RaceQueueJoinEvent not found!")
+        return function() end -- Return dummy function
+    end
+    assert(typeof(callback) == "function", "callback must be function")
+    return RemoteEvents.RaceQueueJoinEvent.OnServerEvent:Connect(callback)
+end
+
+-- Server: Connect to race queue leave event
+function RemoteEvents.OnRaceQueueLeaveReceived(callback)
+    if not RemoteEvents.RaceQueueLeaveEvent then
+        warn("[RemoteEvents] Cannot connect to race queue leave event - RaceQueueLeaveEvent not found!")
+        return function() end -- Return dummy function
+    end
+    assert(typeof(callback) == "function", "callback must be function")
+    return RemoteEvents.RaceQueueLeaveEvent.OnServerEvent:Connect(callback)
 end
 
 return RemoteEvents
