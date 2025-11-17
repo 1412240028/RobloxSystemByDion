@@ -216,7 +216,8 @@ function Config.SetRuntimeConfig(key, value)
 		Config[key] = value
 		if Config.DEBUG_MODE then
 			warn("[Config] Runtime config updated:", key, "=", value)
-		end	else
+		end	
+		else
 		warn("[Config] Invalid config key:", key)
 	end
 end

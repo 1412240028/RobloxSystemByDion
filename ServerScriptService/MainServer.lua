@@ -652,6 +652,7 @@ function MainServer.CheckRaceFinish(player, checkpointId)
 		raceData.finishTime = tick()
 		raceData.checkpoints = checkpointId
 
+		local placement = 1
 		-- Check if this player is the winner
 		if not raceWinner then
 			raceWinner = player
