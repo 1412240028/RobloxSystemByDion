@@ -249,6 +249,8 @@ function MainServer.OnPlayerRemoving(player)
 
 	local playerData = activePlayers[player]
 	if playerData then
+		-- Clear any pending save operations to prevent queue processor issues
+		DataManager.ClearSaveQueue(player)
 		-- Save data
 		DataManager.SavePlayerData(player)
 		-- Cleanup

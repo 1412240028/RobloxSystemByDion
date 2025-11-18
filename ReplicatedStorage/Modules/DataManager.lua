@@ -290,12 +290,18 @@ function DataManager.ProcessSaveQueue(player)
         while saveQueue[player] and #saveQueue[player] > 0 do
             -- Safety timeout: don't process for more than 30 seconds
             if tick() - startTime > 30 then
-                warn(string.format("[DataManager] Queue processor timeout (30s) for %s", player.Name))
+                warn(string.format("[DataManager] Queue processor timeout (30s) for %s", player.Name or "Unknown"))
+                break
+            end
+
+            -- Check if player data still exists (player might have left)
+            if not playerDataCache[player] then
+                print(string.format("[DataManager] Queue processor stopped - player data cleaned up for %s", player.Name or "Unknown"))
                 break
             end
 
             -- Check if player still exists and not currently saving
-            if not playerDataCache[player] or isSaving[player] then
+            if isSaving[player] then
                 break
             end
 
@@ -311,19 +317,19 @@ function DataManager.ProcessSaveQueue(player)
             -- Try to save again
             local success = DataManager.SavePlayerData(player)
             if not success then
-                warn(string.format("[DataManager] Queue processor failed to save for %s", player.Name))
+                warn(string.format("[DataManager] Queue processor failed to save for %s", player.Name or "Unknown"))
                 break -- Stop processing if save fails
             end
 
             -- Safety limit: don't process more than 10 items at once
             if processedCount >= 10 then
-                warn(string.format("[DataManager] Queue processor item limit reached for %s", player.Name))
+                warn(string.format("[DataManager] Queue processor item limit reached for %s", player.Name or "Unknown"))
                 break
             end
         end
 
         queueProcessorActive[player] = false
-        print(string.format("[DataManager] Queue processor finished for %s (processed: %d)", player.Name, processedCount))
+        print(string.format("[DataManager] Queue processor finished for %s (processed: %d)", player.Name or "Unknown", processedCount))
     end)
 end
 
@@ -395,6 +401,16 @@ end
 function DataManager.SaveAllData()
     for player in pairs(playerDataCache) do
         DataManager.SavePlayerData(player)
+    end
+end
+
+-- Clear save queue for a player (used when player is leaving)
+function DataManager.ClearSaveQueue(player)
+    if saveQueue[player] then
+        saveQueue[player] = nil
+    end
+    if queueProcessorActive[player] then
+        queueProcessorActive[player] = false
     end
 end
 
