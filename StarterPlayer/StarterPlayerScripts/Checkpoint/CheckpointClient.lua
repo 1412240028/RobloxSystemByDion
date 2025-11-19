@@ -82,6 +82,9 @@ function CheckpointClient.Init()
 	-- Wait for character
 	CheckpointClient.WaitForCharacter()
 
+	-- Setup leaderstats listener
+	CheckpointClient.SetupLeaderstatsListener()
+
 	-- Connect to checkpoint sync
 	RemoteEvents.OnCheckpointSyncReceived(CheckpointClient.OnCheckpointSyncReceived)
 
@@ -141,6 +144,22 @@ function CheckpointClient.OnCheckpointSyncReceived(syncData)
 
 	print(string.format("[CheckpointClient] Checkpoint sync received: CP %d",
 		syncData.currentCheckpoint or 0))
+end
+
+-- Setup leaderstats listener
+function CheckpointClient.SetupLeaderstatsListener()
+	local leaderstats = player:WaitForChild("leaderstats")
+	local cpValue = leaderstats:WaitForChild("CP")
+
+	-- Listen for changes in CP value
+	cpValue.Changed:Connect(function(newValue)
+		print("[CheckpointClient] Leaderstats CP changed to:", newValue)
+
+		-- Update GUI
+		if checkpointGUI then
+			checkpointGUI.UpdateCheckpointData({currentCheckpoint = newValue})
+		end
+	end)
 end
 
 -- Set GUI reference
