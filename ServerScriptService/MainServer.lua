@@ -391,8 +391,16 @@ function MainServer.OnCheckpointTouched(player, checkpointPart, checkpointModel)
 			return
 		end
 
+		if validation.isSkip then
+			-- Send skip notification to client
+			RemoteEvents.SendCheckpointSkipNotification(player, validation.reason)
+			print(string.format("[MainServer] Checkpoint skip rejected for %s at checkpoint %d: %s",
+				player.Name, checkpointId, validation.reason))
+			return
+		end
+
 		if Config.DEBUG_MODE then
-			warn(string.format("[MainServer] Touch rejected for %s at checkpoint %d: %s", 
+			warn(string.format("[MainServer] Touch rejected for %s at checkpoint %d: %s",
 				player.Name, checkpointId, validation.reason))
 		end
 		return
@@ -429,6 +437,9 @@ function MainServer.OnCheckpointTouched(player, checkpointPart, checkpointModel)
 	end
 
 	RaceController.CheckRaceFinish(player, checkpointId)
+
+	-- Send success notification to client
+	RemoteEvents.SendCheckpointSuccessNotification(player, checkpointId)
 
 	print(string.format("[MainServer] ✓ %s reached checkpoint %d → 🟢 GREEN",
 		player.Name, checkpointId))

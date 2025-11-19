@@ -30,13 +30,23 @@ local Config = {
 
 	-- UI Config
 	BUTTON_SIZE_PC = UDim2.new(0, 40, 0, 60),
-	BUTTON_SIZE_MOBILE = UDim2.new(0, 60, 0, 60),
+	BUTTON_SIZE_MOBILE_PORTRAIT = UDim2.new(0, 20, 0, 40),
+	BUTTON_SIZE_MOBILE_LANDSCAPE = UDim2.new(0, 20, 0, 40),
 	BUTTON_POSITION_PC = UDim2.new(0, 30, 0.5, -30),
-	BUTTON_POSITION_MOBILE = UDim2.new(0, 20, 0, 150),
+	BUTTON_POSITION_MOBILE_PORTRAIT = UDim2.new(0, 20, 0, 150),
+	BUTTON_POSITION_MOBILE_LANDSCAPE = UDim2.new(0, 20, 0.5, -25),
 	BUTTON_COLOR_OFF = Color3.fromRGB(255, 50, 50),
 	BUTTON_COLOR_ON = Color3.fromRGB(50, 150, 255),
 	BUTTON_CORNER_RADIUS = UDim.new(0, 8),
 	BUTTON_STROKE_THICKNESS = 2,
+
+	-- Checkpoint UI Config
+	CHECKPOINT_BUTTON_SIZE_PC = UDim2.new(0, 40, 0, 60),
+	CHECKPOINT_BUTTON_SIZE_MOBILE_PORTRAIT = UDim2.new(0, 20, 0, 20),
+	CHECKPOINT_BUTTON_SIZE_MOBILE_LANDSCAPE = UDim2.new(0, 20, 0, 40),
+	CHECKPOINT_BUTTON_POSITION_PC = UDim2.new(0, 30, 0.5, 40), -- Below sprint button
+	CHECKPOINT_BUTTON_POSITION_MOBILE_PORTRAIT = UDim2.new(0, 20, 0, 180), -- Below sprint button
+	CHECKPOINT_BUTTON_POSITION_MOBILE_LANDSCAPE = UDim2.new(0, 20, 0.5, 30), -- Below sprint button
 
 	-- Animations
 	PRESS_SCALE = 0.9,
@@ -229,6 +239,21 @@ end
 if game:GetService("UserInputService").TouchEnabled then
 	Config.IS_MOBILE = true
 	Config.IS_PC = false
+
+	-- Detect orientation for mobile
+	local viewportSize = workspace.CurrentCamera.ViewportSize
+	if viewportSize.X > viewportSize.Y then
+		Config.IS_LANDSCAPE = true
+		Config.IS_PORTRAIT = false
+	else
+		Config.IS_LANDSCAPE = false
+		Config.IS_PORTRAIT = true
+	end
+else
+	Config.IS_PC = true
+	Config.IS_MOBILE = false
+	Config.IS_LANDSCAPE = false
+	Config.IS_PORTRAIT = false
 end
 
 return Config

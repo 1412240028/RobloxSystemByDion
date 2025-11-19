@@ -88,6 +88,19 @@ function CheckpointClient.Init()
 	-- Connect to checkpoint sync
 	RemoteEvents.OnCheckpointSyncReceived(CheckpointClient.OnCheckpointSyncReceived)
 
+	-- Connect to checkpoint notifications
+	RemoteEvents.OnCheckpointSkipNotificationReceived(function(message)
+		if checkpointGUI then
+			checkpointGUI.ShowSkipNotification(message)
+		end
+	end)
+
+	RemoteEvents.OnCheckpointSuccessNotificationReceived(function(checkpointId)
+		if checkpointGUI then
+			checkpointGUI.ShowSuccessNotification(checkpointId)
+		end
+	end)
+
 	print("[CheckpointClient] Client initialized")
 end
 

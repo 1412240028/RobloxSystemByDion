@@ -30,6 +30,10 @@ local RemoteEvents = {
     RaceQueueJoinEvent = CheckpointEventsFolder:FindFirstChild("RaceQueueJoinEvent"), -- RemoteEvent: Client -> Server
     RaceQueueLeaveEvent = CheckpointEventsFolder:FindFirstChild("RaceQueueLeaveEvent"), -- RemoteEvent: Client -> Server
     RaceQueueUpdateEvent = CheckpointEventsFolder:FindFirstChild("RaceQueueUpdateEvent"), -- RemoteEvent: Server -> Client
+
+    -- Checkpoint Notification Events
+    CheckpointSkipNotificationEvent = CheckpointEventsFolder:FindFirstChild("CheckpointSkipNotificationEvent"), -- RemoteEvent: Server -> Client
+    CheckpointSuccessNotificationEvent = CheckpointEventsFolder:FindFirstChild("CheckpointSuccessNotificationEvent"), -- RemoteEvent: Server -> Client
 }
 
 -- Fallback warning if events not found
@@ -374,6 +378,48 @@ function RemoteEvents.OnRaceQueueLeaveReceived(callback)
     end
     assert(typeof(callback) == "function", "callback must be function")
     return RemoteEvents.RaceQueueLeaveEvent.OnServerEvent:Connect(callback)
+end
+
+-- Server: Send checkpoint skip notification to specific client
+function RemoteEvents.SendCheckpointSkipNotification(player, message)
+    if not RemoteEvents.CheckpointSkipNotificationEvent then
+        warn("[RemoteEvents] Cannot send checkpoint skip notification - CheckpointSkipNotificationEvent not found!")
+        return
+    end
+    assert(typeof(player) == "Instance" and player:IsA("Player"), "player must be Player instance")
+    assert(typeof(message) == "string", "message must be string")
+    RemoteEvents.CheckpointSkipNotificationEvent:FireClient(player, message)
+end
+
+-- Server: Send checkpoint success notification to specific client
+function RemoteEvents.SendCheckpointSuccessNotification(player, checkpointId)
+    if not RemoteEvents.CheckpointSuccessNotificationEvent then
+        warn("[RemoteEvents] Cannot send checkpoint success notification - CheckpointSuccessNotificationEvent not found!")
+        return
+    end
+    assert(typeof(player) == "Instance" and player:IsA("Player"), "player must be Player instance")
+    assert(typeof(checkpointId) == "number", "checkpointId must be number")
+    RemoteEvents.CheckpointSuccessNotificationEvent:FireClient(player, checkpointId)
+end
+
+-- Client: Connect to checkpoint skip notification event
+function RemoteEvents.OnCheckpointSkipNotificationReceived(callback)
+    if not RemoteEvents.CheckpointSkipNotificationEvent then
+        warn("[RemoteEvents] Cannot connect to checkpoint skip notification event - CheckpointSkipNotificationEvent not found!")
+        return function() end -- Return dummy function
+    end
+    assert(typeof(callback) == "function", "callback must be function")
+    return RemoteEvents.CheckpointSkipNotificationEvent.OnClientEvent:Connect(callback)
+end
+
+-- Client: Connect to checkpoint success notification event
+function RemoteEvents.OnCheckpointSuccessNotificationReceived(callback)
+    if not RemoteEvents.CheckpointSuccessNotificationEvent then
+        warn("[RemoteEvents] Cannot connect to checkpoint success notification event - CheckpointSuccessNotificationEvent not found!")
+        return function() end -- Return dummy function
+    end
+    assert(typeof(callback) == "function", "callback must be function")
+    return RemoteEvents.CheckpointSuccessNotificationEvent.OnClientEvent:Connect(callback)
 end
 
 return RemoteEvents

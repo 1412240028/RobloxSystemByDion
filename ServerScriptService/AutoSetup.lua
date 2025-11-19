@@ -150,6 +150,10 @@ function AutoSetup.CreateRemoteEvents()
         AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "RaceQueueJoinEvent", "RemoteEvent")
         AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "RaceQueueLeaveEvent", "RemoteEvent")
         AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "RaceQueueUpdateEvent", "RemoteEvent")
+
+        -- Checkpoint notification remote events
+        AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "CheckpointSkipNotificationEvent", "RemoteEvent")
+        AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "CheckpointSuccessNotificationEvent", "RemoteEvent")
     end
 
     print("[AutoSetup] Remote events created successfully!")

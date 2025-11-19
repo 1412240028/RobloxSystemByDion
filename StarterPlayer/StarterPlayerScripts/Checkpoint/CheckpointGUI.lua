@@ -34,6 +34,11 @@ local originalButtonSize = nil
 -- Client reference
 local checkpointClient = nil
 
+-- Notification variables
+local skipNotificationLabel = nil
+local successNotificationLabel = nil
+local notificationTweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
 -- Initialize GUI
 function CheckpointGUI.Init()
 	if isInitialized then
@@ -69,8 +74,8 @@ function CheckpointGUI.CreateGUI()
 	local mainFrame = Instance.new("Frame")
 	mainFrame.Name = "MainFrame"
 	mainFrame.BackgroundTransparency = 1
-	mainFrame.Size = Config.IS_MOBILE and Config.BUTTON_SIZE_MOBILE or Config.BUTTON_SIZE_PC
-	mainFrame.Position = Config.IS_MOBILE and UDim2.new(0, 20, 0.7, 0) or UDim2.new(0, 30, 0.6, 0)
+	mainFrame.Size = Config.IS_MOBILE and Config.CHECKPOINT_BUTTON_SIZE_MOBILE or Config.CHECKPOINT_BUTTON_SIZE_PC
+	mainFrame.Position = Config.IS_MOBILE and Config.CHECKPOINT_BUTTON_POSITION_MOBILE or Config.CHECKPOINT_BUTTON_POSITION_PC
 	mainFrame.AnchorPoint = Vector2.new(0, 0.5)
 	mainFrame.Parent = screenGui
 
@@ -78,7 +83,7 @@ function CheckpointGUI.CreateGUI()
 	resetButton = Instance.new("TextButton")
 	resetButton.Name = "ResetButton"
 	resetButton.BackgroundColor3 = Color3.fromRGB(150, 50, 50) -- Dark red for reset
-	resetButton.Size = UDim2.new(1, 0, 1, 0)
+	resetButton.Size = Config.IS_MOBILE and Config.CHECKPOINT_BUTTON_SIZE_MOBILE or Config.CHECKPOINT_BUTTON_SIZE_PC
 	resetButton.Text = ""
 	resetButton.AutoButtonColor = false
 	resetButton.Parent = mainFrame
@@ -147,6 +152,56 @@ function CheckpointGUI.CreateGUI()
 	cooldownLabel.TextColor3 = Color3.new(1, 1, 1)
 	cooldownLabel.ZIndex = 4
 	cooldownLabel.Parent = cooldownOverlay
+
+	-- ✅ NEW: Skip notification label
+	skipNotificationLabel = Instance.new("TextLabel")
+	skipNotificationLabel.Name = "SkipNotification"
+	skipNotificationLabel.BackgroundColor3 = Color3.fromRGB(200, 50, 50) -- Red background
+	skipNotificationLabel.BackgroundTransparency = 0.5
+	skipNotificationLabel.Size = Config.NOTIFICATION_SIZE
+	skipNotificationLabel.Position = Config.NOTIFICATION_POSITION -- Start at top center
+	skipNotificationLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+	skipNotificationLabel.Text = ""
+	skipNotificationLabel.TextScaled = true
+	skipNotificationLabel.Font = Enum.Font.SourceSansBold
+	skipNotificationLabel.TextColor3 = Color3.new(1, 1, 1)
+	skipNotificationLabel.Visible = false
+	skipNotificationLabel.ZIndex = 10
+	skipNotificationLabel.Parent = screenGui
+
+	local skipCorner = Instance.new("UICorner")
+	skipCorner.CornerRadius = UDim.new(0, 10)
+	skipCorner.Parent = skipNotificationLabel
+
+	local skipStroke = Instance.new("UIStroke")
+	skipStroke.Thickness = 2
+	skipStroke.Color = Color3.fromRGB(255, 100, 100)
+	skipStroke.Parent = skipNotificationLabel
+
+	-- ✅ NEW: Success notification label
+	successNotificationLabel = Instance.new("TextLabel")
+	successNotificationLabel.Name = "SuccessNotification"
+	successNotificationLabel.BackgroundColor3 = Color3.fromRGB(50, 200, 50) -- Green background
+	successNotificationLabel.BackgroundTransparency = 0.2
+	successNotificationLabel.Size = Config.NOTIFICATION_SIZE
+	successNotificationLabel.Position = Config.NOTIFICATION_POSITION -- Start at top center
+	successNotificationLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+	successNotificationLabel.Text = ""
+	successNotificationLabel.TextScaled = true
+	successNotificationLabel.Font = Enum.Font.SourceSansBold
+	successNotificationLabel.TextColor3 = Color3.new(1, 1, 1)
+	successNotificationLabel.Visible = false
+	successNotificationLabel.ZIndex = 10
+	successNotificationLabel.Parent = screenGui
+
+	local successCorner = Instance.new("UICorner")
+	successCorner.CornerRadius = UDim.new(0, 10)
+	successCorner.Parent = successNotificationLabel
+
+	local successStroke = Instance.new("UIStroke")
+	successStroke.Thickness = 2
+	successStroke.Color = Color3.fromRGB(100, 255, 100)
+	successStroke.Parent = successNotificationLabel
 end
 
 -- Setup button interactions
@@ -258,6 +313,40 @@ end
 function CheckpointGUI.SetClient(clientModule)
 	checkpointClient = clientModule
 	print("[CheckpointGUI] Client reference set successfully")
+end
+
+-- Show skip notification
+function CheckpointGUI.ShowSkipNotification(message)
+	if not skipNotificationLabel then return end
+
+	skipNotificationLabel.Text = "❌ " .. message
+	skipNotificationLabel.Visible = true
+
+	-- Hide after display time
+	task.delay(Config.NOTIFICATION_DISPLAY_TIME, function()
+		if skipNotificationLabel then
+			skipNotificationLabel.Visible = false
+		end
+	end)
+
+	print("[CheckpointGUI] Skip notification shown: " .. message)
+end
+
+-- Show success notification
+function CheckpointGUI.ShowSuccessNotification(checkpointId)
+	if not successNotificationLabel then return end
+
+	successNotificationLabel.Text = "✅ Checkpoint " .. checkpointId .. " reached!"
+	successNotificationLabel.Visible = true
+
+	-- Hide after display time
+	task.delay(Config.NOTIFICATION_DISPLAY_TIME, function()
+		if successNotificationLabel then
+			successNotificationLabel.Visible = false
+		end
+	end)
+
+	print("[CheckpointGUI] Success notification shown for checkpoint " .. checkpointId)
 end
 
 -- Cleanup

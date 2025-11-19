@@ -66,8 +66,24 @@ function SprintGUI.CreateGUI()
 	local mainFrame = Instance.new("Frame")
 	mainFrame.Name = "MainFrame"
 	mainFrame.BackgroundTransparency = 1
-	mainFrame.Size = Config.IS_MOBILE and Config.BUTTON_SIZE_MOBILE or Config.BUTTON_SIZE_PC
-	mainFrame.Position = Config.IS_MOBILE and Config.BUTTON_POSITION_MOBILE or Config.BUTTON_POSITION_PC
+
+	-- Dynamic sizing based on platform and orientation
+	local buttonSize, buttonPosition
+	if Config.IS_PC then
+		buttonSize = Config.BUTTON_SIZE_PC
+		buttonPosition = Config.BUTTON_POSITION_PC
+	elseif Config.IS_MOBILE then
+		if Config.IS_LANDSCAPE then
+			buttonSize = Config.BUTTON_SIZE_MOBILE_LANDSCAPE
+			buttonPosition = Config.BUTTON_POSITION_MOBILE_LANDSCAPE
+		else
+			buttonSize = Config.BUTTON_SIZE_MOBILE_PORTRAIT
+			buttonPosition = Config.BUTTON_POSITION_MOBILE_PORTRAIT
+		end
+	end
+
+	mainFrame.Size = buttonSize
+	mainFrame.Position = buttonPosition
 	mainFrame.AnchorPoint = Vector2.new(0, 0.5)
 	mainFrame.Parent = screenGui
 

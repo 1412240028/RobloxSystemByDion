@@ -1,10 +1,24 @@
-# TODO: Fix Checkpoint System Issues
+# TODO List for Roblox Checkpoint System
 
-## Issues Identified
-1. **DataManager Error (Line 318)**: `DirectSavePlayerData` may be nil in game's version (current file has it).
-2. **Checkpoint Reset Not Working**: Reset function doesn't sync to client or fully reset DataManager.
-3. **CheckpointGUI Error**: No DataStore access in current file.
+## Completed Tasks
+- [x] Add success notification when reaching a checkpoint
+- [x] Add skip notification for invalid checkpoint touches
+- [x] Update server to send notifications
+- [x] Update client to receive and display notifications
+- [x] Update GUI to show notifications
+- [x] Create notification labels in GUI
+- [x] Test the notification system in-game
 
-## Tasks
-- [x] Update `ResetPlayerCheckpoints` in MainServer.lua to properly reset DataManager data and send client sync.
-- [x] Test reset functionality after changes.
+## Pending Tasks
+- [ ] Test the notification system in-game
+- [ ] Add sound effects for notifications
+- [ ] Implement checkpoint skip logic (if needed)
+- [ ] Add more detailed validation messages
+- [ ] Optimize notification animations
+- [ ] Add settings to toggle notifications on/off
+
+## Notes
+- Notifications are sent from server via RemoteEvents
+- GUI handles animation and display of notifications
+- Success notifications show when checkpoint is reached
+- Skip notifications show for invalid touches (too far, debounce, etc.)
