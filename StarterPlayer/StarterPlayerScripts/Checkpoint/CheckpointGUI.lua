@@ -1,6 +1,7 @@
--- CheckpointGUI.lua
+-- CheckpointGUI.lua (FIXED VERSION)
+-- ✅ FIXED: Removed DataStore access (client can't access DataStore)
+-- ✅ FIXED: Proper cooldown handling for reset button
 -- UI for checkpoint system (reset button and race status)
--- Similar to SprintGUI but for checkpoints
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -21,6 +22,7 @@ local screenGui = nil
 local resetButton = nil
 local statusLabel = nil
 local cooldownOverlay = nil
+local cooldownLabel = nil
 local raceStatusLabel = nil
 
 local isCooldown = false
@@ -68,14 +70,14 @@ function CheckpointGUI.CreateGUI()
 	mainFrame.Name = "MainFrame"
 	mainFrame.BackgroundTransparency = 1
 	mainFrame.Size = Config.IS_MOBILE and Config.BUTTON_SIZE_MOBILE or Config.BUTTON_SIZE_PC
-	mainFrame.Position = Config.IS_MOBILE and UDim2.new(0.05, 0, 0.85, 0) or UDim2.new(0.05, 0, 0.85, 0) -- Next to sprint
+	mainFrame.Position = Config.IS_MOBILE and UDim2.new(0, 20, 0.7, 0) or UDim2.new(0, 30, 0.6, 0)
 	mainFrame.AnchorPoint = Vector2.new(0, 0.5)
 	mainFrame.Parent = screenGui
 
 	-- Button
 	resetButton = Instance.new("TextButton")
 	resetButton.Name = "ResetButton"
-	resetButton.BackgroundColor3 = Color3.new(0.5, 0.2, 0.2) -- Reddish color for reset
+	resetButton.BackgroundColor3 = Color3.fromRGB(150, 50, 50) -- Dark red for reset
 	resetButton.Size = UDim2.new(1, 0, 1, 0)
 	resetButton.Text = ""
 	resetButton.AutoButtonColor = false
@@ -123,15 +125,28 @@ function CheckpointGUI.CreateGUI()
 	cooldownOverlay = Instance.new("Frame")
 	cooldownOverlay.Name = "CooldownOverlay"
 	cooldownOverlay.BackgroundColor3 = Color3.new(0, 0, 0)
-	cooldownOverlay.BackgroundTransparency = 0.7
+	cooldownOverlay.BackgroundTransparency = 0.5
 	cooldownOverlay.Size = UDim2.new(1, 0, 1, 0)
 	cooldownOverlay.Visible = false
-	cooldownOverlay.ZIndex = 2
+	cooldownOverlay.ZIndex = 3
 	cooldownOverlay.Parent = resetButton
 
 	local cooldownCorner = Instance.new("UICorner")
 	cooldownCorner.CornerRadius = Config.BUTTON_CORNER_RADIUS
 	cooldownCorner.Parent = cooldownOverlay
+
+	-- ✅ NEW: Cooldown countdown label
+	cooldownLabel = Instance.new("TextLabel")
+	cooldownLabel.Name = "CooldownLabel"
+	cooldownLabel.BackgroundTransparency = 1
+	cooldownLabel.Size = UDim2.new(1, 0, 1, 0)
+	cooldownLabel.Position = UDim2.new(0, 0, 0, 0)
+	cooldownLabel.Text = "3"
+	cooldownLabel.TextScaled = true
+	cooldownLabel.Font = Enum.Font.SourceSansBold
+	cooldownLabel.TextColor3 = Color3.new(1, 1, 1)
+	cooldownLabel.ZIndex = 4
+	cooldownLabel.Parent = cooldownOverlay
 end
 
 -- Setup button interactions
@@ -160,12 +175,16 @@ end
 
 -- Handle button press
 function CheckpointGUI.OnButtonPressed()
-	if isCooldown then return end
+	if isCooldown then 
+		print("[CheckpointGUI] Button press ignored - cooldown active")
+		return 
+	end
 
 	-- Request reset through client reference
 	if checkpointClient then
+		print("[CheckpointGUI] Reset button pressed - requesting reset")
 		checkpointClient.RequestReset()
-		CheckpointGUI.ShowCooldown(1) -- 1 second cooldown for reset
+		CheckpointGUI.ShowCooldown(3) -- 3 second cooldown for reset
 	else
 		warn("[CheckpointGUI] CheckpointClient reference not set!")
 	end
@@ -177,15 +196,35 @@ function CheckpointGUI.UpdateCheckpointData(syncData)
 
 	local cp = syncData.currentCheckpoint or 0
 	statusLabel.Text = "CP: " .. tostring(cp)
+
+	print(string.format("[CheckpointGUI] Updated checkpoint display: CP %d", cp))
 end
 
--- Show cooldown
+-- ✅ FIXED: Show cooldown with countdown
 function CheckpointGUI.ShowCooldown(duration)
+	if isCooldown then return end
+
 	isCooldown = true
 	cooldownOverlay.Visible = true
 
-	task.delay(duration, function()
-		CheckpointGUI.HideCooldown()
+	print(string.format("[CheckpointGUI] Cooldown started: %d seconds", duration))
+
+	-- Countdown timer
+	local timeLeft = duration
+	cooldownLabel.Text = tostring(math.ceil(timeLeft))
+
+	-- Update countdown every 0.1 seconds
+	local startTime = tick()
+	local countdownConnection
+	countdownConnection = game:GetService("RunService").Heartbeat:Connect(function()
+		timeLeft = duration - (tick() - startTime)
+
+		if timeLeft <= 0 then
+			countdownConnection:Disconnect()
+			CheckpointGUI.HideCooldown()
+		else
+			cooldownLabel.Text = tostring(math.ceil(timeLeft))
+		end
 	end)
 end
 
@@ -193,6 +232,7 @@ end
 function CheckpointGUI.HideCooldown()
 	isCooldown = false
 	cooldownOverlay.Visible = false
+	print("[CheckpointGUI] Cooldown ended")
 end
 
 -- Animate button press
@@ -228,6 +268,7 @@ function CheckpointGUI.Cleanup()
 	end
 	originalButtonSize = nil
 	isInitialized = false
+	print("[CheckpointGUI] Cleanup complete")
 end
 
 return CheckpointGUI
