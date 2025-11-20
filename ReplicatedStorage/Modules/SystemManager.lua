@@ -241,11 +241,13 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
 
     if not isBasicCommand and not self:IsAdmin(player) then
         AdminLogger:LogPermissionDenied(player, command, "Not an admin")
+        Log("WARN", "Command rejected - not admin: %s (%d) tried %s", player.Name, player.UserId, command)
         return false, "Admin access required"
     end
 
     -- For basic commands, require at least MEMBER level (everyone)
     if isBasicCommand and adminLevel < Config.ADMIN_PERMISSION_LEVELS.MEMBER then
+        Log("WARN", "Command rejected - insufficient level: %s (%d, level %d) tried %s", player.Name, player.UserId, adminLevel, command)
         return false, "Access denied"
     end
 
@@ -257,6 +259,7 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
     local cooldownTime = Config.ADMIN_COMMAND_COOLDOWN or 1
     if tick() - lastUsed < cooldownTime then
         AdminLogger:LogRateLimitHit(player, command)
+        Log("WARN", "Command rejected - rate limited: %s tried %s", player.Name, command)
         return false, string.format("Command on cooldown. Wait %.1f seconds.", cooldownTime - (tick() - lastUsed))
     end
 
@@ -266,8 +269,11 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
             command = command,
             args = args and table.concat(args, " ") or "none"
         })
+        Log("WARN", "Command rejected - invalid input: %s tried %s", player.Name, command)
         return false, "Invalid command input"
     end
+
+    Log("INFO", "Executing command: %s by %s (level %d)", command, player.Name, adminLevel)
 
     -- Command routing based on permission level
     local success, result
@@ -339,15 +345,15 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
         if not targetPlayer then
             return false, "Player not found"
         end
-        -- Import MainServer to access reset function
-        local MainServer = require(game.ServerScriptService.MainServer)
-        MainServer.ResetPlayerCheckpoints(targetPlayer)
+        -- Fire the reset event to avoid circular dependency
+        local ResetCheckpointsEvent = require(game.ReplicatedStorage.Remotes.ResetCheckpointsEvent)
+        ResetCheckpointsEvent.Event:Fire(targetPlayer)
         success, result = true, string.format("Reset checkpoints for %s", targetPlayer.Name)
     elseif command == "reset_all_cp" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.ADMIN then
-        local MainServer = require(game.ServerScriptService.MainServer)
+        local ResetCheckpointsEvent = require(game.ReplicatedStorage.Remotes.ResetCheckpointsEvent)
         local resetCount = 0
         for _, p in ipairs(Players:GetPlayers()) do
-            MainServer.ResetPlayerCheckpoints(p)
+            ResetCheckpointsEvent.Event:Fire(p)
             resetCount = resetCount + 1
         end
         success, result = true, string.format("Reset checkpoints for %d players", resetCount)
@@ -523,6 +529,31 @@ function SystemManager:FindPlayerByName(name)
         end
     end
     return nil
+end
+
+-- Handle player joining
+function SystemManager:OnPlayerAdded(player)
+    -- Auto-assign MEMBER role to new players
+    if not self:IsAdmin(player) then
+        -- This will be called from MainServer when player joins
+        self:AssignMemberRole(player)
+    end
+end
+
+-- Auto-assign MEMBER role to new players
+function SystemManager:AssignMemberRole(player)
+    if not player then return end
+
+    -- Only assign if not already an admin
+    if not adminCache[player.UserId] then
+        adminCache[player.UserId] = {
+            permission = "MEMBER",
+            level = Config.ADMIN_PERMISSION_LEVELS.MEMBER,
+            lastActive = tick()
+        }
+
+        Log("INFO", "Auto-assigned MEMBER role to %s", player.Name)
+    end
 end
 
 -- Cleanup on player leave

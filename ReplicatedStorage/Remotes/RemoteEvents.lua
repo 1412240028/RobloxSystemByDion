@@ -15,6 +15,7 @@ local RemoteEvents = {
     -- Sprint Remote Events
     SprintToggleEvent = SprintEventsFolder:FindFirstChild("SprintToggleEvent"), -- RemoteEvent: Client -> Server
     SprintSyncEvent = SprintEventsFolder:FindFirstChild("SprintSyncEvent"), -- RemoteEvent: Server -> Client
+    SprintSyncRequestEvent = SprintEventsFolder:FindFirstChild("SprintSyncRequestEvent"), -- RemoteEvent: Client -> Server
 
     -- Checkpoint Remote Events
     CheckpointTouchedEvent = CheckpointEventsFolder:FindFirstChild("CheckpointTouchedEvent"), -- RemoteEvent: Client -> Server
@@ -140,6 +141,16 @@ function RemoteEvents.OnToggleRequested(callback)
     end
     assert(typeof(callback) == "function", "callback must be function")
     return RemoteEvents.SprintToggleEvent.OnServerEvent:Connect(callback)
+end
+
+-- Server: Connect to sync request event
+function RemoteEvents.OnSyncRequestReceived(callback)
+    if not RemoteEvents.SprintSyncRequestEvent then
+        warn("[RemoteEvents] Cannot connect to sync request event - SprintSyncRequestEvent not found!")
+        return function() end -- Return dummy function
+    end
+    assert(typeof(callback) == "function", "callback must be function")
+    return RemoteEvents.SprintSyncRequestEvent.OnServerEvent:Connect(callback)
 end
 
 -- Client: Fire checkpoint touch to server

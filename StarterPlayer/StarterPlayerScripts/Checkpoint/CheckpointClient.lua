@@ -161,18 +161,47 @@ end
 
 -- Setup leaderstats listener
 function CheckpointClient.SetupLeaderstatsListener()
-	local leaderstats = player:WaitForChild("leaderstats")
-	local cpValue = leaderstats:WaitForChild("CP")
+	-- Retry until leaderstats is available (server might be slow to create it)
+	local maxRetries = 30 -- 30 seconds max
+	local retryCount = 0
 
-	-- Listen for changes in CP value
-	cpValue.Changed:Connect(function(newValue)
-		print("[CheckpointClient] Leaderstats CP changed to:", newValue)
+	while retryCount < maxRetries do
+		local leaderstats = player:FindFirstChild("leaderstats")
+		if leaderstats then
+			local cpValue = leaderstats:FindFirstChild("CP")
+			if cpValue then
+				print("[CheckpointClient] Leaderstats found, setting up listener")
 
-		-- Update GUI
-		if checkpointGUI then
-			checkpointGUI.UpdateCheckpointData({currentCheckpoint = newValue})
+				-- Listen for changes in CP value
+				cpValue.Changed:Connect(function(newValue)
+					print("[CheckpointClient] Leaderstats CP changed to:", newValue)
+
+					-- Update GUI
+					if checkpointGUI then
+						checkpointGUI.UpdateCheckpointData({currentCheckpoint = newValue})
+					end
+				end)
+
+				-- Also listen for Finish value changes
+				local finishValue = leaderstats:FindFirstChild("Finish")
+				if finishValue then
+					finishValue.Changed:Connect(function(newValue)
+						print("[CheckpointClient] Leaderstats Finish changed to:", newValue)
+					end)
+				end
+
+				return -- Success, exit function
+			end
 		end
-	end)
+
+		retryCount = retryCount + 1
+		if retryCount % 10 == 0 then -- Log every 10 seconds
+			warn(string.format("[CheckpointClient] Still waiting for leaderstats (attempt %d/%d)", retryCount, maxRetries))
+		end
+		task.wait(1)
+	end
+
+	warn("[CheckpointClient] Failed to find leaderstats after 30 seconds, listener not set up")
 end
 
 -- Set GUI reference

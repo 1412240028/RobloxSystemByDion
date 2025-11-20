@@ -165,7 +165,7 @@ local Config = {
 		MODERATOR = 3,
 		HELPER = 2,
 		MEMBER = 1,
-		Tester = 0
+		TESTER = 1
 	},
 
 

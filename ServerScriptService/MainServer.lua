@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Config.Config)
 local SharedTypes = require(ReplicatedStorage.Modules.SharedTypes)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
+local ResetCheckpointsEvent = require(ReplicatedStorage.Remotes.ResetCheckpointsEvent)
 local DataManager = require(ReplicatedStorage.Modules.DataManager)
 local RaceController = require(ReplicatedStorage.Modules.RaceController)
 local SystemManager = require(ReplicatedStorage.Modules.SystemManager)
@@ -37,30 +38,43 @@ local CHECKPOINT_COLORS = {
 function MainServer.Init()
 	print("[MainServer] Initializing Unified System v1.5 (Ring Checkpoints)")
 
+	-- ✅ FIXED: Initialize admin system FIRST (before player handlers)
+	if Config.ENABLE_ADMIN_SYSTEM then
+		print("[MainServer] Initializing admin system...")
+		local success = SystemManager:Init()
+		if success then
+			print("[MainServer] ✅ Admin system initialized successfully")
+		else
+			warn("[MainServer] ❌ Failed to initialize admin system")
+		end
+	end
+
+	-- Setup admin command handling (needs admin system ready)
+	MainServer.SetupAdminCommands()
+
 	Players.PlayerAdded:Connect(MainServer.OnPlayerAdded)
 	Players.PlayerRemoving:Connect(MainServer.OnPlayerRemoving)
 
+	-- Handle players already in game (Studio testing)
+	for _, player in ipairs(Players:GetPlayers()) do
+		MainServer.OnPlayerAdded(player)
+	end
+
 	RemoteEvents.OnToggleRequested(MainServer.OnSprintToggleRequested)
+	RemoteEvents.OnSyncRequestReceived(MainServer.OnSprintSyncRequest)
 	RemoteEvents.OnResetRequested(MainServer.ResetPlayerCheckpoints)
 	RemoteEvents.OnRaceQueueJoinReceived(MainServer.OnRaceQueueJoin)
 	RemoteEvents.OnRaceQueueLeaveReceived(MainServer.OnRaceQueueLeave)
 
-	-- Setup admin command handling
-	MainServer.SetupAdminCommands()
+	-- Connect to reset event to avoid circular dependency
+	ResetCheckpointsEvent.Event:Connect(function(player)
+		MainServer.ResetPlayerCheckpoints(player)
+	end)
 
 	MainServer.SetupCheckpointTouches()
 
 	MainServer.StartHeartbeat()
 	DataManager.StartAutoSave()
-
-	if Config.ENABLE_ADMIN_SYSTEM then
-		local success = SystemManager:Init()
-		if success then
-			print("[MainServer] Admin system initialized successfully")
-		else
-			warn("[MainServer] Failed to initialize admin system")
-		end
-	end
 
 	if Config.ENABLE_RACE_SYSTEM then
 		MainServer.InitializeRaceSystem()
@@ -125,6 +139,9 @@ end
 -- Handle player joining
 function MainServer.OnPlayerAdded(player)
 	print("[MainServer] Player joined:", player.Name)
+
+	-- Auto-assign MEMBER role to new players
+	SystemManager:OnPlayerAdded(player)
 
 	local checkpointValue, finishValue = MainServer.CreateLeaderstats(player)
 	local playerData = DataManager.CreatePlayerData(player)
@@ -271,6 +288,26 @@ function MainServer.OnPlayerRemoving(player)
 		end
 		playerConnections[player] = nil
 	end
+end
+
+-- Sprint sync request
+function MainServer.OnSprintSyncRequest(player)
+	local playerData = activePlayers[player]
+	if not playerData then
+		warn(string.format("[MainServer] Sync request failed for %s - player data not found", player.Name))
+		return
+	end
+
+	local targetSpeed = playerData.isSprinting and Config.SPRINT_SPEED or Config.NORMAL_SPEED
+
+	RemoteEvents.SendSync(player, {
+		isSprinting = playerData.isSprinting,
+		currentSpeed = targetSpeed,
+		timestamp = tick()
+	})
+
+	print(string.format("[MainServer] Sprint sync sent to %s (state: %s, speed: %d)",
+		player.Name, playerData.isSprinting and "ON" or "OFF", targetSpeed))
 end
 
 -- Sprint toggle
@@ -770,61 +807,138 @@ end
 
 -- Setup admin command handling
 function MainServer.SetupAdminCommands()
-	-- Use Player.Chatted event for reliable command handling
-	local function onPlayerChatted(player, message)
-		local command, args = SystemManager:ParseCommand(message)
-		if command then
-			print(string.format("[MainServer] Command received from %s: %s", player.Name, message))
+	local TextChatService = game:GetService("TextChatService")
 
-			local success, result = SystemManager:ExecuteAdminCommand(player, command, args)
-			if success then
-				-- Send result back to player via notification
-				if typeof(result) == "string" then
-					RemoteEvents.SendRaceNotification(player, {message = result})
-				elseif typeof(result) == "table" then
-					-- Handle complex results (like player lists, status info)
-					local messageText = ""
-					if result.message then
-						messageText = result.message
-					elseif result.status then
-						messageText = string.format("Status: %s, Players: %d, Admins: %d",
-							result.initialized and "Active" or "Inactive",
-							result.playerCount or 0,
-							result.adminCount or 0)
-					elseif #result > 0 and result[1].name then
-						-- Player list
-						messageText = "Players: " .. table.concat(
-							table.map(result, function(p) return p.name .. (p.isAdmin and " (Admin)" or "") end),
-							", "
-						)
+	if TextChatService then
+		local function onMessageReceived(message)
+			local player = Players:GetPlayerByUserId(message.TextSource.UserId)
+			if not player then return end
+
+			local command, args = SystemManager:ParseCommand(message.Text)
+			if command then
+				print(string.format("[MainServer] Command received from %s: %s", player.Name, message.Text))
+
+				local success, result = SystemManager:ExecuteAdminCommand(player, command, args)
+				if success then
+					-- Send result back to player via notification
+					if typeof(result) == "string" then
+						RemoteEvents.SendRaceNotification(player, {message = result})
+					elseif typeof(result) == "table" then
+						-- Handle complex results (like player lists, status info)
+						local messageText = ""
+						if result.message then
+							messageText = result.message
+						elseif result.status then
+							messageText = string.format("Status: %s, Players: %d, Admins: %d",
+								result.initialized and "Active" or "Inactive",
+								result.playerCount or 0,
+								result.adminCount or 0)
+						elseif result.player then
+							-- Single player checkpoint status
+							messageText = string.format("%s - CP: %d, Finishes: %d, Touched: %d",
+								result.player, result.currentCheckpoint, result.finishCount, result.touchedCheckpoints)
+						elseif #result > 0 and result[1].name then
+							-- Player list or checkpoint status list
+							if result[1].cp then
+								-- Checkpoint status list
+								local lines = {}
+								for _, p in ipairs(result) do
+									table.insert(lines, string.format("%s: CP%d (F%d)", p.name, p.cp, p.finishes))
+								end
+								messageText = "Checkpoint Status:\n" .. table.concat(lines, "\n")
+							else
+								-- Player list
+								messageText = "Players: " .. table.concat(
+									table.map(result, function(p) return p.name .. (p.isAdmin and " (Admin)" or "") end),
+									", "
+								)
+							end
+						else
+							messageText = "Command executed successfully"
+						end
+						RemoteEvents.SendRaceNotification(player, {message = messageText})
 					else
-						messageText = "Command executed successfully"
+						RemoteEvents.SendRaceNotification(player, {message = "Command executed successfully"})
 					end
-					RemoteEvents.SendRaceNotification(player, {message = messageText})
 				else
-					RemoteEvents.SendRaceNotification(player, {message = "Command executed successfully"})
+					RemoteEvents.SendRaceNotification(player, {message = result or "Command failed"})
 				end
-			else
-				RemoteEvents.SendRaceNotification(player, {message = result or "Command failed"})
 			end
 		end
-	end
 
-	-- Connect to Player.Chatted event for all current and future players
-	Players.PlayerAdded:Connect(function(player)
-		player.Chatted:Connect(function(message)
-			onPlayerChatted(player, message)
+		TextChatService.MessageReceived:Connect(onMessageReceived)
+		print("[MainServer] Admin command handling via TextChatService initialized")
+	else
+		-- ✅ FIXED: Fallback to Player.Chatted if TextChatService not available
+		local function onPlayerChatted(player, message)
+			local command, args = SystemManager:ParseCommand(message)
+			if command then
+				print(string.format("[MainServer] Command received from %s: %s", player.Name, message))
+
+				local success, result = SystemManager:ExecuteAdminCommand(player, command, args)
+				if success then
+					-- Send result back to player via notification
+					if typeof(result) == "string" then
+						RemoteEvents.SendRaceNotification(player, {message = result})
+					elseif typeof(result) == "table" then
+						-- Handle complex results (like player lists, status info)
+						local messageText = ""
+						if result.message then
+							messageText = result.message
+						elseif result.status then
+							messageText = string.format("Status: %s, Players: %d, Admins: %d",
+								result.initialized and "Active" or "Inactive",
+								result.playerCount or 0,
+								result.adminCount or 0)
+						elseif result.player then
+							-- Single player checkpoint status
+							messageText = string.format("%s - CP: %d, Finishes: %d, Touched: %d",
+								result.player, result.currentCheckpoint, result.finishCount, result.touchedCheckpoints)
+						elseif #result > 0 and result[1].name then
+							-- Player list or checkpoint status list
+							if result[1].cp then
+								-- Checkpoint status list
+								local lines = {}
+								for _, p in ipairs(result) do
+									table.insert(lines, string.format("%s: CP%d (F%d)", p.name, p.cp, p.finishes))
+								end
+								messageText = "Checkpoint Status:\n" .. table.concat(lines, "\n")
+							else
+								-- Player list
+								messageText = "Players: " .. table.concat(
+									table.map(result, function(p) return p.name .. (p.isAdmin and " (Admin)" or "") end),
+									", "
+								)
+							end
+						else
+							messageText = "Command executed successfully"
+						end
+						RemoteEvents.SendRaceNotification(player, {message = messageText})
+					else
+						RemoteEvents.SendRaceNotification(player, {message = "Command executed successfully"})
+					end
+				else
+					RemoteEvents.SendRaceNotification(player, {message = result or "Command failed"})
+				end
+			end
+		end
+
+		-- Connect to Player.Chatted for all players
+		for _, player in ipairs(Players:GetPlayers()) do
+			player.Chatted:Connect(function(message)
+				onPlayerChatted(player, message)
+			end)
+		end
+
+		-- Connect for future players
+		Players.PlayerAdded:Connect(function(player)
+			player.Chatted:Connect(function(message)
+				onPlayerChatted(player, message)
+			end)
 		end)
-	end)
 
-	-- Also connect for existing players
-	for _, player in ipairs(Players:GetPlayers()) do
-		player.Chatted:Connect(function(message)
-			onPlayerChatted(player, message)
-		end)
+		print("[MainServer] Admin command handling via Player.Chatted initialized (fallback)")
 	end
-
-	print("[MainServer] Admin command handling via Player.Chatted initialized")
 end
 
 -- Cleanup
