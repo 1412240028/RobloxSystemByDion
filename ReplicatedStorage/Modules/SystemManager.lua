@@ -184,6 +184,36 @@ function SystemManager:GetGlobalStatus()
     return self:GetSystemStatus()
 end
 
+-- Parse command with prefix triggers
+function SystemManager:ParseCommand(message)
+    -- Check for command prefixes: /, !, ;
+    local prefix = message:sub(1, 1)
+    if prefix ~= "/" and prefix ~= "!" and prefix ~= ";" then
+        return nil -- Not a command
+    end
+
+    -- Remove prefix and trim whitespace
+    local commandText = message:sub(2):gsub("^%s+", "")
+
+    -- Split command and arguments
+    local parts = {}
+    for part in commandText:gmatch("%S+") do
+        table.insert(parts, part)
+    end
+
+    if #parts == 0 then
+        return nil -- Empty command
+    end
+
+    local command = parts[1]:lower()
+    local args = {}
+    for i = 2, #parts do
+        table.insert(args, parts[i])
+    end
+
+    return command, args
+end
+
 -- Execute admin command
 function SystemManager:ExecuteAdminCommand(player, command, args)
     if not self:IsAdmin(player) then
@@ -253,8 +283,135 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
             averageParticipants = string.format("%.1f", stats.averageParticipants),
             cooldownRemaining = stats.cooldownRemaining > 0 and string.format("%.1f", stats.cooldownRemaining) or "0"
         }
+    elseif command == "reset_cp" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.MODERATOR then
+        if not args or #args < 1 then
+            return false, "Usage: reset_cp <playerName>"
+        end
+        local targetPlayer = self:FindPlayerByName(args[1])
+        if not targetPlayer then
+            return false, "Player not found"
+        end
+        -- Import MainServer to access reset function
+        local MainServer = require(game.ServerScriptService.MainServer)
+        MainServer.ResetPlayerCheckpoints(targetPlayer)
+        return true, string.format("Reset checkpoints for %s", targetPlayer.Name)
+    elseif command == "reset_all_cp" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.ADMIN then
+        local MainServer = require(game.ServerScriptService.MainServer)
+        local resetCount = 0
+        for _, p in ipairs(Players:GetPlayers()) do
+            MainServer.ResetPlayerCheckpoints(p)
+            resetCount = resetCount + 1
+        end
+        return true, string.format("Reset checkpoints for %d players", resetCount)
+    elseif command == "set_cp" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.MODERATOR then
+        if not args or #args < 2 then
+            return false, "Usage: set_cp <playerName> <checkpointId>"
+        end
+        local targetPlayer = self:FindPlayerByName(args[1])
+        if not targetPlayer then
+            return false, "Player not found"
+        end
+        local checkpointId = tonumber(args[2])
+        if not checkpointId or checkpointId < 0 then
+            return false, "Invalid checkpoint ID"
+        end
+        -- Import DataManager to set checkpoint
+        local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
+        DataManager.SetCheckpoint(targetPlayer, checkpointId)
+        return true, string.format("Set %s to checkpoint %d", targetPlayer.Name, checkpointId)
+    elseif command == "cp_status" then
+        if args and #args >= 1 then
+            local targetPlayer = self:FindPlayerByName(args[1])
+            if not targetPlayer then
+                return false, "Player not found"
+            end
+            local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
+            local playerData = DataManager.GetPlayerData(targetPlayer)
+            if playerData then
+                return true, {
+                    player = targetPlayer.Name,
+                    currentCheckpoint = playerData.currentCheckpoint or 0,
+                    finishCount = playerData.finishCount or 0,
+                    touchedCheckpoints = playerData.touchedCheckpoints and #playerData.touchedCheckpoints or 0
+                }
+            else
+                return false, "No data found for player"
+            end
+        else
+            -- Show all players' checkpoint status
+            local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
+            local statusList = {}
+            for _, p in ipairs(Players:GetPlayers()) do
+                local playerData = DataManager.GetPlayerData(p)
+                if playerData then
+                    table.insert(statusList, {  
+                        name = p.Name,
+                        cp = playerData.currentCheckpoint or 0,
+                        finishes = playerData.finishCount or 0
+                    })
+                end
+            end
+            return true, statusList
+        end
+    elseif command == "complete_cp" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.MODERATOR then
+        if not args or #args < 2 then
+            return false, "Usage: complete_cp <playerName> <checkpointId>"
+        end
+        local targetPlayer = self:FindPlayerByName(args[1])
+        if not targetPlayer then
+            return false, "Player not found"
+        end
+        local checkpointId = tonumber(args[2])
+        if not checkpointId or checkpointId < 1 then
+            return false, "Invalid checkpoint ID"
+        end
+        -- Import DataManager to force complete checkpoint
+        local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
+        DataManager.ForceCompleteCheckpoint(targetPlayer, checkpointId)
+        return true, string.format("Force completed checkpoint %d for %s", checkpointId, targetPlayer.Name)
+    elseif command == "finish_race" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.MODERATOR then
+        if not args or #args < 1 then
+            return false, "Usage: finish_race <playerName>"
+        end
+        local targetPlayer = self:FindPlayerByName(args[1])
+        if not targetPlayer then
+            return false, "Player not found"
+        end
+        -- Import DataManager to increment finish count
+        local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
+        DataManager.UpdateFinishCount(targetPlayer)
+        return true, string.format("Force finished race for %s", targetPlayer.Name)
+    elseif command == "help" then
+        local helpText = [[
+=== Checkpoint System Admin Commands ===
+
+GENERAL:
+  status - Show system status
+  players - List all players
+  help - Show this help
+
+CHECKPOINT COMMANDS:
+  reset_cp <playerName> - Reset checkpoints for specific player
+  reset_all_cp - Reset checkpoints for all players (ADMIN+)
+  set_cp <playerName> <checkpointId> - Set player to specific checkpoint
+  cp_status [playerName] - Show checkpoint status (all players if no name)
+  complete_cp <playerName> <checkpointId> - Force complete checkpoint
+  finish_race <playerName> - Force finish race for player
+
+RACE COMMANDS:
+  startrace - Start a race (MOD+)
+  endrace - End current race (MOD+)
+  race status - Show race status
+
+ADMIN MANAGEMENT (OWNER+):
+  add_admin <userId> <permission> - Add admin
+  remove_admin <userId> - Remove admin
+
+Permission levels: OWNER(5), DEVELOPER(4), MODERATOR(3), HELPER(2), TESTER(1)
+        ]]
+        return true, helpText
     else
-        return false, "Unknown command or insufficient permissions"
+        return false, "Unknown command or insufficient permissions. Use 'help' for command list."
     end
 end
 

@@ -1,24 +1,12 @@
-# TODO List for Roblox Checkpoint System
+# TODO: Translate Notification Texts to Indonesian
 
-## Completed Tasks
-- [x] Add success notification when reaching a checkpoint
-- [x] Add skip notification for invalid checkpoint touches
-- [x] Update server to send notifications
-- [x] Update client to receive and display notifications
-- [x] Update GUI to show notifications
-- [x] Create notification labels in GUI
-- [x] Test the notification system in-game
+## Steps to Complete
 
-## Pending Tasks
-- [ ] Test the notification system in-game
-- [ ] Add sound effects for notifications
-- [ ] Implement checkpoint skip logic (if needed)
-- [ ] Add more detailed validation messages
-- [ ] Optimize notification animations
-- [ ] Add settings to toggle notifications on/off
+- [x] Translate success notification text in CheckpointGUI.lua
+- [x] Translate skip reason messages in MainServer.lua (already in Indonesian)
+- [x] Test the notifications to ensure correct display
 
-## Notes
-- Notifications are sent from server via RemoteEvents
-- GUI handles animation and display of notifications
-- Success notifications show when checkpoint is reached
-- Skip notifications show for invalid touches (too far, debounce, etc.)
+## Progress Tracking
+
+- Started: Now
+- Completed: All translations and testing completed

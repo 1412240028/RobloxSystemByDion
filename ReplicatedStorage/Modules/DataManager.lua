@@ -47,7 +47,8 @@ function DataManager.CreatePlayerData(player)
 		raceStartTime = 0, -- When current race started
 		raceCheckpoints = 0, -- Checkpoints collected in current race
 		totalRaces = 0, -- Total races participated in
-		racesWon = 0 -- Number of races won
+		racesWon = 0, -- Number of races won
+		finishCount = 0 -- Number of times reached finish
 	}
 
 	playerDataCache[player] = data
@@ -114,6 +115,17 @@ function DataManager.UpdateDeathCount(player)
 	if not data then return end
 
 	data.deathCount = data.deathCount + 1
+
+	-- Mark as dirty for auto-save
+	dirtyPlayers[player] = true
+end
+
+-- Update finish count
+function DataManager.UpdateFinishCount(player)
+	local data = playerDataCache[player]
+	if not data then return end
+
+	data.finishCount = (data.finishCount or 0) + 1
 
 	-- Mark as dirty for auto-save
 	dirtyPlayers[player] = true
@@ -247,6 +259,7 @@ function DataManager.SavePlayerData(player)
 		bestTime = data.bestTime,
 		totalRaces = data.totalRaces,
 		racesWon = data.racesWon,
+		finishCount = data.finishCount,
 		lastPlayedVersion = Config.VERSION
 	}
 
@@ -315,6 +328,7 @@ function DataManager.DirectSavePlayerData(player)
 		bestTime = data.bestTime,
 		totalRaces = data.totalRaces,
 		racesWon = data.racesWon,
+		finishCount = data.finishCount,
 		lastPlayedVersion = Config.VERSION
 	}
 
@@ -437,6 +451,7 @@ function DataManager.LoadPlayerData(player)
 		data.bestTime = loadedData.bestTime
 		data.totalRaces = loadedData.totalRaces or 0
 		data.racesWon = loadedData.racesWon or 0
+		data.finishCount = loadedData.finishCount or 0
 
 		print(string.format("[DataManager] Loaded data for %s (sprint: %s, checkpoint: %d, history: %d, deaths: %d)",
 			player.Name, tostring(data.isSprinting), data.currentCheckpoint, #data.checkpointHistory, data.deathCount))
@@ -493,6 +508,62 @@ end
 -- Check if player data is dirty
 function DataManager.IsDirty(player)
 	return dirtyPlayers[player] == true
+end
+
+-- Set checkpoint for player (admin command)
+function DataManager.SetCheckpoint(player, checkpointId)
+	local data = playerDataCache[player]
+	if not data then return false end
+
+	data.currentCheckpoint = checkpointId
+
+	-- Update spawn position based on checkpoint
+	local Checkpoints = workspace:WaitForChild("Checkpoints")
+	local checkpoint = Checkpoints:FindFirstChild("Checkpoint" .. checkpointId)
+	if checkpoint then
+		local spawnPosition = checkpoint.Position + Config.CHECKPOINT_SPAWN_OFFSET
+		data.spawnPosition = spawnPosition
+	end
+
+	-- Mark as dirty for auto-save
+	dirtyPlayers[player] = true
+
+	print(string.format("[DataManager] Admin set checkpoint %d for %s", checkpointId, player.Name))
+	return true
+end
+
+-- Force complete checkpoint (admin command)
+function DataManager.ForceCompleteCheckpoint(player, checkpointId)
+	local data = playerDataCache[player]
+	if not data then return false end
+
+	-- Mark checkpoint as touched
+	data.touchedCheckpoints[checkpointId] = true
+
+	-- Update current checkpoint if higher
+	if checkpointId > data.currentCheckpoint then
+		data.currentCheckpoint = checkpointId
+
+		-- Update spawn position
+		local Checkpoints = workspace:WaitForChild("Checkpoints")
+		local checkpoint = Checkpoints:FindFirstChild("Checkpoint" .. checkpointId)
+		if checkpoint then
+			local spawnPosition = checkpoint.Position + Config.CHECKPOINT_SPAWN_OFFSET
+			data.spawnPosition = spawnPosition
+		end
+	end
+
+	-- Add to history if not present
+	if not table.find(data.checkpointHistory, checkpointId) then
+		table.insert(data.checkpointHistory, checkpointId)
+		table.sort(data.checkpointHistory)
+	end
+
+	-- Mark as dirty for auto-save
+	dirtyPlayers[player] = true
+
+	print(string.format("[DataManager] Admin force completed checkpoint %d for %s", checkpointId, player.Name))
+	return true
 end
 
 -- Auto-save loop (call this from MainServer.Init)

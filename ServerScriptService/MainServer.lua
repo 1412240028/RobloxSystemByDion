@@ -45,6 +45,9 @@ function MainServer.Init()
 	RemoteEvents.OnRaceQueueJoinReceived(MainServer.OnRaceQueueJoin)
 	RemoteEvents.OnRaceQueueLeaveReceived(MainServer.OnRaceQueueLeave)
 
+	-- Setup admin command handling
+	MainServer.SetupAdminCommands()
+
 	MainServer.SetupCheckpointTouches()
 
 	MainServer.StartHeartbeat()
@@ -110,15 +113,20 @@ function MainServer.CreateLeaderstats(player)
 	checkpointValue.Value = 0
 	checkpointValue.Parent = leaderstats
 
+	local finishValue = Instance.new("IntValue")
+	finishValue.Name = "Finish"
+	finishValue.Value = 0
+	finishValue.Parent = leaderstats
+
 	print(string.format("[MainServer] Leaderstats created for %s", player.Name))
-	return checkpointValue
+	return checkpointValue, finishValue
 end
 
 -- Handle player joining
 function MainServer.OnPlayerAdded(player)
 	print("[MainServer] Player joined:", player.Name)
 
-	local checkpointValue = MainServer.CreateLeaderstats(player)
+	local checkpointValue, finishValue = MainServer.CreateLeaderstats(player)
 	local playerData = DataManager.CreatePlayerData(player)
 	activePlayers[player] = playerData
 
@@ -151,6 +159,13 @@ function MainServer.OnPlayerAdded(player)
 	local savedCheckpoint = playerData.currentCheckpoint
 	if savedCheckpoint then
 		checkpointValue.Value = savedCheckpoint
+	end
+
+	local savedFinish = playerData.finishCount
+	if savedFinish then
+		finishValue.Value = savedFinish
+	else
+		finishValue.Value = 0
 	end
 
 	local characterAddedConnection = player.CharacterAdded:Connect(function(character)
@@ -366,6 +381,19 @@ function MainServer.ValidateCheckpointTouch(player, checkpointPart, checkpointId
 		return result
 	end
 
+	-- ✅ NEW: Sequential checkpoint enforcement
+	-- Players must collect checkpoints in order (1, 2, 3, etc.)
+	if checkpointId > 1 then
+		local touchedCheckpoints = playerTouchedCheckpoints[userId] or {}
+		for i = 1, checkpointId - 1 do
+			if not touchedCheckpoints[i] then
+				result.reason = string.format("Kumpulkan checkpoint %d dulu!", i)
+				result.isSkip = true
+				return result
+			end
+		end
+	end
+
 	checkpointDebounce[userId][checkpointId] = now
 
 	result.success = true
@@ -374,8 +402,67 @@ end
 
 -- Handle checkpoint touch with color change
 function MainServer.OnCheckpointTouched(player, checkpointPart, checkpointModel)
-	local checkpointId = tonumber(string.match(checkpointModel.Name, "%d+")) 
-		or checkpointModel:GetAttribute("Order")
+	local checkpointId
+
+	-- Special handling for "Finish" checkpoint
+	if checkpointModel.Name == "Finish" or checkpointModel:GetAttribute("IsFinish") then
+		local totalCheckpoints = #Checkpoints:GetChildren()
+		checkpointId = totalCheckpoints
+
+		local userId = player.UserId
+
+		-- ✅ Prevent multiple finish touches (one-time only)
+		if playerTouchedCheckpoints[userId] and playerTouchedCheckpoints[userId][checkpointId] then
+			return  -- Already finished, ignore
+		end
+
+		-- Mark finish as touched
+		if not playerTouchedCheckpoints[userId] then
+			playerTouchedCheckpoints[userId] = {}
+		end
+		playerTouchedCheckpoints[userId][checkpointId] = true
+
+		-- Special finish logic: increment finish count and reset CP to 0
+		DataManager.UpdateFinishCount(player)
+
+		local playerData = DataManager.GetPlayerData(player)
+		local leaderstats = player:FindFirstChild("leaderstats")
+		if leaderstats then
+			local checkpointValue = leaderstats:FindFirstChild("CP")
+			if checkpointValue then
+				checkpointValue.Value = 0  -- Reset CP to 0
+			end
+			local finishValue = leaderstats:FindFirstChild("Finish")
+			if finishValue then
+				finishValue.Value = playerData.finishCount or 0
+			end
+		end
+
+		-- Send sync with CP reset to 0
+		RemoteEvents.SendCheckpointSync(player, {
+			currentCheckpoint = 0,
+			checkpointHistory = {},
+			spawnPosition = Vector3.new(0, 0, 0),
+			timestamp = tick()
+		})
+
+		-- Send success notification
+		RemoteEvents.SendCheckpointSuccessNotification(player, checkpointId)
+
+		print(string.format("[MainServer] 🎉 %s finished the race! Finish count: %d",
+			player.Name, playerData.finishCount or 0))
+
+		-- Save data
+		local saveSuccess = DataManager.SavePlayerData(player)
+		if not saveSuccess then
+			warn(string.format("[MainServer] ⚠️ Failed to save finish data for %s!", player.Name))
+		end
+
+		return  -- Skip normal checkpoint logic
+	else
+		checkpointId = tonumber(string.match(checkpointModel.Name, "%d+"))
+			or checkpointModel:GetAttribute("Order")
+	end
 
 	if not checkpointId then
 		if Config.DEBUG_MODE then
@@ -424,6 +511,13 @@ function MainServer.OnCheckpointTouched(player, checkpointPart, checkpointModel)
 		if checkpointValue then
 			checkpointValue.Value = checkpointId
 		end
+		local finishValue = leaderstats:FindFirstChild("Finish")
+		if finishValue then
+			local playerData = DataManager.GetPlayerData(player)
+			if playerData then
+				finishValue.Value = playerData.finishCount or 0
+			end
+		end
 	end
 
 	local playerCheckpointData = DataManager.GetPlayerData(player)
@@ -450,7 +544,7 @@ function MainServer.OnCheckpointTouched(player, checkpointPart, checkpointModel)
 	end
 end
 
--- ✅ FIXED: Reset player checkpoints with proper color reset and sync
+-- ✅ FIXED: Reset player checkpoints with proper color reset and sync + auto teleport
 function MainServer.ResetPlayerCheckpoints(player)
 	local userId = player.UserId
 
@@ -493,18 +587,28 @@ function MainServer.ResetPlayerCheckpoints(player)
 			end
 		end
 
+		-- ✅ NEW: Auto teleport to spawn location (checkpoint 0)
+		local spawnPosition = Vector3.new(0, 0, 0) -- Default spawn location
+		if playerData.character and playerData.character:FindFirstChild("HumanoidRootPart") then
+			local hrp = playerData.character.HumanoidRootPart
+			hrp.CFrame = CFrame.new(spawnPosition)
+			print(string.format("[MainServer] 📍 Teleported %s to spawn location", player.Name))
+		else
+			warn(string.format("[MainServer] ⚠️ Could not teleport %s - character not found", player.Name))
+		end
+
 		-- ✅ Send sync to client to update UI
 		RemoteEvents.SendCheckpointSync(player, {
 			currentCheckpoint = 0,
 			checkpointHistory = {},
-			spawnPosition = Vector3.new(0, 0, 0),
+			spawnPosition = spawnPosition,
 			timestamp = tick()
 		})
 
 		-- ✅ Save immediately to ensure persistence
 		local saveSuccess = DataManager.SavePlayerData(player)
 		if saveSuccess then
-			print(string.format("[MainServer] ✅ Reset complete for %s - All checkpoints 🔴 RED", player.Name))
+			print(string.format("[MainServer] ✅ Reset complete for %s - All checkpoints 🔴 RED, teleported to spawn", player.Name))
 		else
 			warn(string.format("[MainServer] ⚠️ Reset successful but save failed for %s!", player.Name))
 		end
@@ -662,6 +766,38 @@ end
 function MainServer.InitializeRaceSystem()
 	print("[MainServer] Initializing race system")
 	print("[MainServer] Race system initialized")
+end
+
+-- Setup admin command handling
+function MainServer.SetupAdminCommands()
+	local TextChatService = game:GetService("TextChatService")
+
+	if TextChatService then
+		local chatCommandConnection = TextChatService.MessageReceived:Connect(function(message)
+			local player = Players:GetPlayerByUserId(message.TextSource.UserId)
+			if not player then return end
+
+			local command, args = SystemManager:ParseCommand(message.Text)
+			if command then
+				local success, result = SystemManager:ExecuteAdminCommand(player, command, args)
+				if success then
+					-- Send result back to player via chat or notification
+					if typeof(result) == "string" then
+						RemoteEvents.SendRaceNotification(player, {message = result})
+					else
+						-- For complex results, send as notification
+						RemoteEvents.SendRaceNotification(player, {message = "Command executed successfully"})
+					end
+				else
+					RemoteEvents.SendRaceNotification(player, {message = result or "Command failed"})
+				end
+			end
+		end)
+
+		print("[MainServer] Admin command handling via TextChatService initialized")
+	else
+		warn("[MainServer] TextChatService not available - admin commands disabled")
+	end
 end
 
 -- Cleanup

@@ -160,6 +160,9 @@ function RaceController.CheckRaceFinish(player, checkpointId)
 		raceData.finishTime = tick()
 		raceData.checkpoints = checkpointId
 
+		-- Update finish count
+		DataManager.UpdateFinishCount(player)
+
 		local placement = 1
 		-- Check if this player is the winner
 		if not raceWinner then

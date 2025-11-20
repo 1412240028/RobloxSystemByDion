@@ -336,7 +336,7 @@ end
 function CheckpointGUI.ShowSuccessNotification(checkpointId)
 	if not successNotificationLabel then return end
 
-	successNotificationLabel.Text = "✅ Checkpoint " .. checkpointId .. " reached!"
+	successNotificationLabel.Text = "✅ Checkpoint " .. checkpointId .. " tercapai!"
 	successNotificationLabel.Visible = true
 
 	-- Hide after display time
