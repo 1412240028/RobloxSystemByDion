@@ -5,11 +5,13 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Config.Config)
+local AdminLogger = require(ReplicatedStorage.Modules.AdminLogger)
 
 local SystemManager = {}
 
 -- Private variables
 local adminCache = {}
+local commandCooldowns = {} -- {userId = {command = lastUsedTime}}
 local systemStatus = {
     initialized = false,
     checkpointSystemActive = false,
@@ -46,6 +48,9 @@ function SystemManager:Init()
         return false
     end
 
+    -- Initialize admin logger
+    AdminLogger:Init()
+
     -- Build admin cache
     self:BuildAdminCache()
 
@@ -60,14 +65,18 @@ function SystemManager:Init()
     return true
 end
 
--- Build admin cache from settings
+-- Build admin cache from DataStore
 function SystemManager:BuildAdminCache()
     adminCache = {}
-    for userId, permission in pairs(Config.ADMIN_UIDS) do
+    local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
+    DataManager.LoadAdminData()
+
+    local allAdminData = DataManager.GetAllAdminData()
+    for userId, adminData in pairs(allAdminData) do
         adminCache[userId] = {
-            permission = permission,
-            level = Config.ADMIN_PERMISSION_LEVELS[permission] or 1,
-            lastActive = 0
+            permission = adminData.permission,
+            level = adminData.level,
+            lastActive = adminData.lastActive or 0
         }
     end
     Log("DEBUG", "Admin cache built with %d entries", #adminCache)
@@ -103,29 +112,39 @@ end
 
 -- Add admin at runtime (for owner-level operations)
 function SystemManager:AddAdmin(addedBy, userId, permission)
-    if not self:IsAdmin(addedBy) or self:GetAdminLevel(addedBy) < Config.ADMIN_PERMISSION_LEVELS.OWNER then
-        return false, "Insufficient permissions"
-    end
+	-- Allow bootstrap: if no admins exist, allow adding first admin without permissions
+	local hasExistingAdmins = false
+	for _ in pairs(adminCache) do
+		hasExistingAdmins = true
+		break
+	end
 
-    if adminCache[userId] then
-        return false, "User is already an admin"
-    end
+	if hasExistingAdmins and (not self:IsAdmin(addedBy) or self:GetAdminLevel(addedBy) < Config.ADMIN_PERMISSION_LEVELS.OWNER) then
+		return false, "Insufficient permissions"
+	end
 
-    if not Config.ADMIN_PERMISSION_LEVELS[permission] then
-        return false, "Invalid permission level"
-    end
+	if adminCache[userId] then
+		return false, "User is already an admin"
+	end
 
-    adminCache[userId] = {
-        permission = permission,
-        level = Config.ADMIN_PERMISSION_LEVELS[permission],
-        lastActive = tick()
-    }
+	if not Config.ADMIN_PERMISSION_LEVELS[permission] then
+		return false, "Invalid permission level"
+	end
 
-    -- Update settings (runtime only, not persisted)
-    Config.ADMIN_UIDS[userId] = permission
+	local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
+	local success, errorMsg = DataManager.AddAdmin(userId, permission, addedBy)
+	if not success then
+		return false, errorMsg
+	end
 
-    Log("INFO", "Admin added: %d (%s) by %s", userId, permission, addedBy.Name)
-    return true, "Admin added successfully"
+	adminCache[userId] = {
+		permission = permission,
+		level = Config.ADMIN_PERMISSION_LEVELS[permission],
+		lastActive = tick()
+	}
+
+	Log("INFO", "Admin added: %d (%s) by %s", userId, permission, addedBy.Name)
+	return true, "Admin added successfully"
 end
 
 -- Remove admin at runtime
@@ -216,15 +235,44 @@ end
 
 -- Execute admin command
 function SystemManager:ExecuteAdminCommand(player, command, args)
-    if not self:IsAdmin(player) then
+    -- Allow basic commands for all players (MEMBER level and above)
+    local isBasicCommand = (command == "status" or command == "players" or command == "help" or command == "cp_status")
+    local adminLevel = self:GetAdminLevel(player)
+
+    if not isBasicCommand and not self:IsAdmin(player) then
+        AdminLogger:LogPermissionDenied(player, command, "Not an admin")
         return false, "Admin access required"
     end
 
-    local adminLevel = self:GetAdminLevel(player)
+    -- For basic commands, require at least MEMBER level (everyone)
+    if isBasicCommand and adminLevel < Config.ADMIN_PERMISSION_LEVELS.MEMBER then
+        return false, "Access denied"
+    end
+
+    -- Rate limiting check
+    local playerId = player.UserId
+    commandCooldowns[playerId] = commandCooldowns[playerId] or {}
+
+    local lastUsed = commandCooldowns[playerId][command] or 0
+    local cooldownTime = Config.ADMIN_COMMAND_COOLDOWN or 1
+    if tick() - lastUsed < cooldownTime then
+        AdminLogger:LogRateLimitHit(player, command)
+        return false, string.format("Command on cooldown. Wait %.1f seconds.", cooldownTime - (tick() - lastUsed))
+    end
+
+    -- Input validation and sanitization
+    if not self:ValidateCommandInput(command, args) then
+        AdminLogger:Log(AdminLogger.Levels.WARN, "INVALID_COMMAND_INPUT", player, nil, {
+            command = command,
+            args = args and table.concat(args, " ") or "none"
+        })
+        return false, "Invalid command input"
+    end
 
     -- Command routing based on permission level
+    local success, result
     if command == "status" then
-        return true, self:GetSystemStatus()
+        success, result = true, self:GetSystemStatus()
     elseif command == "players" then
         local playerList = {}
         for _, p in ipairs(Players:GetPlayers()) do
@@ -234,28 +282,28 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
                 isAdmin = self:IsAdmin(p)
             })
         end
-        return true, playerList
+        success, result = true, playerList
     elseif command == "add_admin" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.OWNER then
         if not args or #args < 2 then
             return false, "Usage: add_admin <userId> <permission>"
         end
         local targetUserId = tonumber(args[1])
         local permission = args[2]
-        return self:AddAdmin(player, targetUserId, permission)
+        success, result = self:AddAdmin(player, targetUserId, permission)
     elseif command == "remove_admin" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.OWNER then
         if not args or #args < 1 then
             return false, "Usage: remove_admin <userId>"
         end
         local targetUserId = tonumber(args[1])
-        return self:RemoveAdmin(player, targetUserId)
+        success, result = self:RemoveAdmin(player, targetUserId)
     elseif command == "startrace" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.MODERATOR then
         -- Import RaceController here to avoid circular dependency
         local RaceController = require(game.ReplicatedStorage.Modules.RaceController)
         local canStart, reason = RaceController.CanStartRace()
         if canStart then
-            local success = RaceController.StartRace()
-            if success then
-                return true, "Race started successfully"
+            local raceSuccess = RaceController.StartRace()
+            if raceSuccess then
+                success, result = true, "Race started successfully"
             else
                 return false, "Failed to start race"
             end
@@ -264,9 +312,9 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
         end
     elseif command == "endrace" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.MODERATOR then
         local RaceController = require(game.ReplicatedStorage.Modules.RaceController)
-        local success = RaceController.ForceEndRace()
-        if success then
-            return true, "Race ended successfully"
+        local raceSuccess = RaceController.ForceEndRace()
+        if raceSuccess then
+            success, result = true, "Race ended successfully"
         else
             return false, "No active race to end"
         end
@@ -274,7 +322,7 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
         local RaceController = require(game.ReplicatedStorage.Modules.RaceController)
         local status = RaceController.GetRaceStatus()
         local stats = RaceController.GetRaceStats()
-        return true, {
+        success, result = true, {
             active = status.active,
             participants = status.participantCount,
             timeRemaining = status.timeRemaining,
@@ -294,7 +342,7 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
         -- Import MainServer to access reset function
         local MainServer = require(game.ServerScriptService.MainServer)
         MainServer.ResetPlayerCheckpoints(targetPlayer)
-        return true, string.format("Reset checkpoints for %s", targetPlayer.Name)
+        success, result = true, string.format("Reset checkpoints for %s", targetPlayer.Name)
     elseif command == "reset_all_cp" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.ADMIN then
         local MainServer = require(game.ServerScriptService.MainServer)
         local resetCount = 0
@@ -302,7 +350,7 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
             MainServer.ResetPlayerCheckpoints(p)
             resetCount = resetCount + 1
         end
-        return true, string.format("Reset checkpoints for %d players", resetCount)
+        success, result = true, string.format("Reset checkpoints for %d players", resetCount)
     elseif command == "set_cp" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.MODERATOR then
         if not args or #args < 2 then
             return false, "Usage: set_cp <playerName> <checkpointId>"
@@ -318,7 +366,7 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
         -- Import DataManager to set checkpoint
         local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
         DataManager.SetCheckpoint(targetPlayer, checkpointId)
-        return true, string.format("Set %s to checkpoint %d", targetPlayer.Name, checkpointId)
+        success, result = true, string.format("Set %s to checkpoint %d", targetPlayer.Name, checkpointId)
     elseif command == "cp_status" then
         if args and #args >= 1 then
             local targetPlayer = self:FindPlayerByName(args[1])
@@ -328,7 +376,7 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
             local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
             local playerData = DataManager.GetPlayerData(targetPlayer)
             if playerData then
-                return true, {
+                success, result = true, {
                     player = targetPlayer.Name,
                     currentCheckpoint = playerData.currentCheckpoint or 0,
                     finishCount = playerData.finishCount or 0,
@@ -344,14 +392,14 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
             for _, p in ipairs(Players:GetPlayers()) do
                 local playerData = DataManager.GetPlayerData(p)
                 if playerData then
-                    table.insert(statusList, {  
+                    table.insert(statusList, {
                         name = p.Name,
                         cp = playerData.currentCheckpoint or 0,
                         finishes = playerData.finishCount or 0
                     })
                 end
             end
-            return true, statusList
+            success, result = true, statusList
         end
     elseif command == "complete_cp" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.MODERATOR then
         if not args or #args < 2 then
@@ -368,7 +416,7 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
         -- Import DataManager to force complete checkpoint
         local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
         DataManager.ForceCompleteCheckpoint(targetPlayer, checkpointId)
-        return true, string.format("Force completed checkpoint %d for %s", checkpointId, targetPlayer.Name)
+        success, result = true, string.format("Force completed checkpoint %d for %s", checkpointId, targetPlayer.Name)
     elseif command == "finish_race" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.MODERATOR then
         if not args or #args < 1 then
             return false, "Usage: finish_race <playerName>"
@@ -380,7 +428,7 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
         -- Import DataManager to increment finish count
         local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
         DataManager.UpdateFinishCount(targetPlayer)
-        return true, string.format("Force finished race for %s", targetPlayer.Name)
+        success, result = true, string.format("Force finished race for %s", targetPlayer.Name)
     elseif command == "help" then
         local helpText = [[
 === Checkpoint System Admin Commands ===
@@ -409,15 +457,81 @@ ADMIN MANAGEMENT (OWNER+):
 
 Permission levels: OWNER(5), DEVELOPER(4), MODERATOR(3), HELPER(2), TESTER(1)
         ]]
-        return true, helpText
+        success, result = true, helpText
     else
         return false, "Unknown command or insufficient permissions. Use 'help' for command list."
     end
+
+    -- Update cooldown after successful command execution
+    if success then
+        commandCooldowns[playerId][command] = tick()
+
+        -- Log successful command execution
+        AdminLogger:Log(AdminLogger.Levels.INFO, "COMMAND_EXECUTED", player, nil, {
+            command = command,
+            args = args and table.concat(args, " ") or "none"
+        })
+    end
+
+    return success, result
+end
+
+-- Validate command input
+function SystemManager:ValidateCommandInput(command, args)
+    -- Basic validation for known commands
+    if command == "add_admin" then
+        if not args or #args < 2 then return false end
+        local userId = tonumber(args[1])
+        if not userId or userId <= 0 then return false end
+        local permission = args[2]
+        if not Config.ADMIN_PERMISSION_LEVELS[permission] then return false end
+    elseif command == "remove_admin" then
+        if not args or #args < 1 then return false end
+        local userId = tonumber(args[1])
+        if not userId or userId <= 0 then return false end
+    elseif command == "set_cp" or command == "complete_cp" then
+        if not args or #args < 2 then return false end
+        local checkpointId = tonumber(args[2])
+        if not checkpointId or checkpointId < 0 then return false end
+    elseif command == "reset_cp" or command == "cp_status" or command == "finish_race" then
+        if not args or #args < 1 then return false end
+    end
+
+    -- Sanitize args (remove potentially harmful characters)
+    if args then
+        for i, arg in ipairs(args) do
+            -- Remove null bytes and other control characters
+            args[i] = arg:gsub("[%z\1-\31\127-\255]", "")
+            -- Limit length to prevent abuse
+            if #args[i] > 100 then
+                args[i] = args[i]:sub(1, 100)
+            end
+        end
+    end
+
+    return true
+end
+
+-- Find player by name (case-insensitive partial match)
+function SystemManager:FindPlayerByName(name)
+    if not name then return nil end
+
+    name = name:lower()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player.Name:lower():find(name, 1, true) then
+            return player
+        end
+    end
+    return nil
 end
 
 -- Cleanup on player leave
 function SystemManager:CleanupPlayer(player)
-    -- Any player-specific cleanup can go here
+    -- Clean up command cooldowns
+    if commandCooldowns[player.UserId] then
+        commandCooldowns[player.UserId] = nil
+    end
+
     Log("DEBUG", "Player cleanup: %s", player.Name)
 end
 

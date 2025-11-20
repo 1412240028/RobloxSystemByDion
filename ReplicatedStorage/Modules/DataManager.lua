@@ -13,12 +13,15 @@ local DataManager = {}
 
 -- Private variables
 local dataStore = DataStoreService:GetDataStore(Config.DATASTORE_NAME)
+local adminDataStore = DataStoreService:GetDataStore(Config.ADMIN_GLOBAL_DATASTORE)
 local playerDataCache = {} -- player -> data
+local adminDataCache = {} -- admin data cache: {userId = {permission, level, addedBy, addedAt, lastActive}}
 local saveQueue = {} -- Queue for save operations to prevent race conditions
 local isSaving = {} -- player -> boolean to prevent concurrent saves
 local queueProcessorActive = {} -- player -> boolean to track if queue processor is running
 local queueMetrics = {} -- player -> {size = number, processed = number, errors = number}
 local dirtyPlayers = {} -- player -> boolean (true if data has changed and needs saving)
+local adminDataDirty = false -- true if admin data has changed and needs saving
 
 -- Create new unified player data structure
 function DataManager.CreatePlayerData(player)
@@ -566,6 +569,101 @@ function DataManager.ForceCompleteCheckpoint(player, checkpointId)
 	return true
 end
 
+-- Admin Data Management Functions
+
+-- Load admin data from DataStore
+function DataManager.LoadAdminData()
+	local success, loadedData = pcall(function()
+		return adminDataStore:GetAsync("AdminData")
+	end)
+
+	if success and loadedData then
+		adminDataCache = loadedData
+		print(string.format("[DataManager] Loaded admin data for %d admins", #adminDataCache))
+	else
+		-- Use default admin data from config if no saved data
+		adminDataCache = {}
+		for userId, permission in pairs(Config.ADMIN_UIDS or {}) do
+			adminDataCache[userId] = {
+				permission = permission,
+				level = Config.ADMIN_PERMISSION_LEVELS[permission] or 1,
+				addedBy = "SYSTEM",
+				addedAt = tick(),
+				lastActive = tick()
+			}
+		end
+		warn("[DataManager] Admin data load failed, using defaults")
+	end
+end
+
+-- Save admin data to DataStore
+function DataManager.SaveAdminData()
+	if not adminDataDirty then return true end
+
+	local success, errorMessage = pcall(function()
+		adminDataStore:SetAsync("AdminData", adminDataCache)
+	end)
+
+	if success then
+		adminDataDirty = false
+		print("[DataManager] Admin data saved successfully")
+		return true
+	else
+		warn(string.format("[DataManager] Admin data save failed: %s", errorMessage))
+		return false
+	end
+end
+
+-- Get admin data for a user
+function DataManager.GetAdminData(userId)
+	return adminDataCache[userId]
+end
+
+-- Add admin to cache
+function DataManager.AddAdmin(userId, permission, addedBy)
+	if adminDataCache[userId] then return false, "User is already an admin" end
+
+	adminDataCache[userId] = {
+		permission = permission,
+		level = Config.ADMIN_PERMISSION_LEVELS[permission] or 1,
+		addedBy = addedBy and addedBy.Name or "SYSTEM",
+		addedAt = tick(),
+		lastActive = tick()
+	}
+
+	adminDataDirty = true
+	print(string.format("[DataManager] Admin added: %d (%s) by %s", userId, permission, addedBy and addedBy.Name or "SYSTEM"))
+	return true
+end
+
+-- Remove admin from cache
+function DataManager.RemoveAdmin(userId)
+	if not adminDataCache[userId] then return false, "User is not an admin" end
+
+	adminDataCache[userId] = nil
+	adminDataDirty = true
+	print(string.format("[DataManager] Admin removed: %d", userId))
+	return true
+end
+
+-- Update admin last active time
+function DataManager.UpdateAdminActivity(userId)
+	if adminDataCache[userId] then
+		adminDataCache[userId].lastActive = tick()
+		adminDataDirty = true
+	end
+end
+
+-- Get all admin data
+function DataManager.GetAllAdminData()
+	return adminDataCache
+end
+
+-- Force save admin data (emergency)
+function DataManager.SaveAllAdminData()
+	return DataManager.SaveAdminData()
+end
+
 -- Auto-save loop (call this from MainServer.Init)
 function DataManager.StartAutoSave()
 	task.spawn(function()
@@ -577,6 +675,11 @@ function DataManager.StartAutoSave()
 				if isDirty and playerDataCache[player] then
 					DataManager.SavePlayerData(player)
 				end
+			end
+
+			-- Save admin data if dirty
+			if adminDataDirty then
+				DataManager.SaveAdminData()
 			end
 		end
 	end)

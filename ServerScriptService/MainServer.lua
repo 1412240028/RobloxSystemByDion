@@ -770,34 +770,61 @@ end
 
 -- Setup admin command handling
 function MainServer.SetupAdminCommands()
-	local TextChatService = game:GetService("TextChatService")
+	-- Use Player.Chatted event for reliable command handling
+	local function onPlayerChatted(player, message)
+		local command, args = SystemManager:ParseCommand(message)
+		if command then
+			print(string.format("[MainServer] Command received from %s: %s", player.Name, message))
 
-	if TextChatService then
-		local chatCommandConnection = TextChatService.MessageReceived:Connect(function(message)
-			local player = Players:GetPlayerByUserId(message.TextSource.UserId)
-			if not player then return end
-
-			local command, args = SystemManager:ParseCommand(message.Text)
-			if command then
-				local success, result = SystemManager:ExecuteAdminCommand(player, command, args)
-				if success then
-					-- Send result back to player via chat or notification
-					if typeof(result) == "string" then
-						RemoteEvents.SendRaceNotification(player, {message = result})
+			local success, result = SystemManager:ExecuteAdminCommand(player, command, args)
+			if success then
+				-- Send result back to player via notification
+				if typeof(result) == "string" then
+					RemoteEvents.SendRaceNotification(player, {message = result})
+				elseif typeof(result) == "table" then
+					-- Handle complex results (like player lists, status info)
+					local messageText = ""
+					if result.message then
+						messageText = result.message
+					elseif result.status then
+						messageText = string.format("Status: %s, Players: %d, Admins: %d",
+							result.initialized and "Active" or "Inactive",
+							result.playerCount or 0,
+							result.adminCount or 0)
+					elseif #result > 0 and result[1].name then
+						-- Player list
+						messageText = "Players: " .. table.concat(
+							table.map(result, function(p) return p.name .. (p.isAdmin and " (Admin)" or "") end),
+							", "
+						)
 					else
-						-- For complex results, send as notification
-						RemoteEvents.SendRaceNotification(player, {message = "Command executed successfully"})
+						messageText = "Command executed successfully"
 					end
+					RemoteEvents.SendRaceNotification(player, {message = messageText})
 				else
-					RemoteEvents.SendRaceNotification(player, {message = result or "Command failed"})
+					RemoteEvents.SendRaceNotification(player, {message = "Command executed successfully"})
 				end
+			else
+				RemoteEvents.SendRaceNotification(player, {message = result or "Command failed"})
 			end
-		end)
-
-		print("[MainServer] Admin command handling via TextChatService initialized")
-	else
-		warn("[MainServer] TextChatService not available - admin commands disabled")
+		end
 	end
+
+	-- Connect to Player.Chatted event for all current and future players
+	Players.PlayerAdded:Connect(function(player)
+		player.Chatted:Connect(function(message)
+			onPlayerChatted(player, message)
+		end)
+	end)
+
+	-- Also connect for existing players
+	for _, player in ipairs(Players:GetPlayers()) do
+		player.Chatted:Connect(function(message)
+			onPlayerChatted(player, message)
+		end)
+	end
+
+	print("[MainServer] Admin command handling via Player.Chatted initialized")
 end
 
 -- Cleanup

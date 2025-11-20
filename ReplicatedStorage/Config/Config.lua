@@ -164,14 +164,11 @@ local Config = {
 		DEVELOPER = 4,
 		MODERATOR = 3,
 		HELPER = 2,
-		TESTER = 1
+		MEMBER = 1,
+		Tester = 0
 	},
 
-	-- Admin UIDs (Add your UID and other admins here)
-	ADMIN_UIDS = {
-		[8806688001] = "OWNER", -- Owner
-		[9653762582] = "TESTER", -- Co-Owner
-	},
+
 
 	-- Admin Commands Settings
 	ADMIN_COMMAND_COOLDOWN = 1, -- seconds
