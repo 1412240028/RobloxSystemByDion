@@ -456,8 +456,16 @@ function DataManager.LoadPlayerData(player)
 		data.racesWon = loadedData.racesWon or 0
 		data.finishCount = loadedData.finishCount or 0
 
-		print(string.format("[DataManager] Loaded data for %s (sprint: %s, checkpoint: %d, history: %d, deaths: %d)",
-			player.Name, tostring(data.isSprinting), data.currentCheckpoint, #data.checkpointHistory, data.deathCount))
+		-- Count touched checkpoints (dictionary table)
+		local touchedCount = 0
+		if data.touchedCheckpoints then
+			for _ in pairs(data.touchedCheckpoints) do
+				touchedCount = touchedCount + 1
+			end
+		end
+
+		print(string.format("[DataManager] ✓ Loaded data for %s (sprint: %s, checkpoint: %d, history: %d, deaths: %d, touched: %d)",
+			player.Name, tostring(data.isSprinting), data.currentCheckpoint, #data.checkpointHistory, data.deathCount, touchedCount))
 	else
 		-- Use defaults
 		warn(string.format("[DataManager] Load failed for %s, using defaults", player.Name))
@@ -466,8 +474,14 @@ function DataManager.LoadPlayerData(player)
 		data.speedViolations = 0
 		data.currentCheckpoint = 0
 		data.checkpointHistory = {}
+		data.touchedCheckpoints = {}
 		data.deathCount = 0
 		data.spawnPosition = Vector3.new(0, 0, 0)
+		data.raceTimes = {}
+		data.bestTime = nil
+		data.totalRaces = 0
+		data.racesWon = 0
+		data.finishCount = 0
 	end
 end
 
@@ -667,23 +681,62 @@ end
 -- Auto-save loop (call this from MainServer.Init)
 function DataManager.StartAutoSave()
 	task.spawn(function()
+		local autoSaveCount = 0
+		local totalSaved = 0
+		local totalFailed = 0
+
 		while true do
 			task.wait(Config.AUTO_SAVE_INTERVAL or 30) -- Default 30 seconds
+			autoSaveCount = autoSaveCount + 1
+
+			local cycleSaved = 0
+			local cycleFailed = 0
+			local dirtyCount = 0
+
+			-- Count dirty players
+			for player, isDirty in pairs(dirtyPlayers) do
+				if isDirty then
+					dirtyCount = dirtyCount + 1
+				end
+			end
 
 			-- Save all dirty players
 			for player, isDirty in pairs(dirtyPlayers) do
 				if isDirty and playerDataCache[player] then
-					DataManager.SavePlayerData(player)
+					local success = DataManager.SavePlayerData(player)
+					if success then
+						cycleSaved = cycleSaved + 1
+						totalSaved = totalSaved + 1
+					else
+						cycleFailed = cycleFailed + 1
+						totalFailed = totalFailed + 1
+					end
 				end
 			end
 
 			-- Save admin data if dirty
+			local adminSaved = false
 			if adminDataDirty then
-				DataManager.SaveAdminData()
+				local success = DataManager.SaveAdminData()
+				if success then
+					adminSaved = true
+				else
+					warn("[DataManager] Auto-save: Admin data save failed")
+				end
+			end
+
+			-- Log auto-save status
+			if cycleSaved > 0 or cycleFailed > 0 or adminSaved then
+				local status = cycleFailed > 0 and "⚠️" or "✓"
+				print(string.format("[DataManager] %s Auto-save #%d: %d/%d players saved (%d dirty), admin: %s",
+					status, autoSaveCount, cycleSaved, cycleSaved + cycleFailed, dirtyCount,
+					adminSaved and "saved" or "unchanged"))
+			else
+				print(string.format("[DataManager] ✓ Auto-save #%d: No changes to save", autoSaveCount))
 			end
 		end
 	end)
-	print("[DataManager] Auto-save system started")
+	print("[DataManager] ✓ Auto-save system started (interval: " .. (Config.AUTO_SAVE_INTERVAL or 30) .. "s)")
 end
 
 return DataManager

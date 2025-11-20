@@ -380,17 +380,43 @@ function RaceController.StartAutoScheduler()
 			if canStart then
 				local success = RaceController.StartRace()
 				if success then
-					print("[RaceController] Auto-race started successfully")
+					print("[RaceController] ✓ Auto-race started successfully")
 				else
-					warn("[RaceController] Auto-race failed to start")
+					warn("[RaceController] ⚠️ Auto-race failed to start")
 				end
 			else
-				print(string.format("[RaceController] Auto-race skipped: %s", reason))
+				print(string.format("[RaceController] ⏭️ Auto-race skipped: %s", reason))
 			end
 		end
 	end)
 
-	print(string.format("[RaceController] Auto-race scheduler started (every %d minutes)", Config.AUTO_RACE_INTERVAL_MINUTES))
+	print(string.format("[RaceController] ✓ Auto-race scheduler started (every %d minutes)", Config.AUTO_RACE_INTERVAL_MINUTES))
+end
+
+-- ✨ NEW: Manual race trigger for testing (admin command)
+function RaceController.TriggerManualRace(adminPlayer)
+	if not adminPlayer then
+		return false, "Admin player required"
+	end
+
+	print(string.format("[RaceController] Manual race trigger requested by %s", adminPlayer.Name))
+
+	-- Check if we can start a race
+	local canStart, reason = RaceController.CanStartRace()
+	if not canStart then
+		warn(string.format("[RaceController] Manual race trigger failed: %s", reason))
+		return false, reason
+	end
+
+	-- Start the race
+	local success = RaceController.StartRace()
+	if success then
+		print(string.format("[RaceController] ✓ Manual race started by %s", adminPlayer.Name))
+		return true, "Race started successfully"
+	else
+		warn(string.format("[RaceController] ⚠️ Manual race failed to start for %s", adminPlayer.Name))
+		return false, "Failed to start race"
+	end
 end
 
 -- Stop auto-race scheduler

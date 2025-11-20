@@ -461,6 +461,9 @@ ADMIN MANAGEMENT (OWNER+):
   add_admin <userId> <permission> - Add admin
   remove_admin <userId> - Remove admin
 
+RACE TESTING (MOD+):
+  testrace - Manually trigger a race for testing
+
 Permission levels: OWNER(5), DEVELOPER(4), MODERATOR(3), HELPER(2), TESTER(1)
         ]]
         success, result = true, helpText

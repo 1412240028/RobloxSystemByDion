@@ -23,7 +23,9 @@ local heartbeatConnection = nil
 local Checkpoints = workspace:WaitForChild("Checkpoints")
 local playerTouchedCheckpoints = {}
 local checkpointDebounce = {}
-local playerConnections = {}
+local playerConnections = {} -- {player = {characterDied = connection, characterAdded = connection}}
+local checkpointConnections = {} -- {checkpointId = {touchConnection = connection}}
+local characterConnections = {} -- {character = {diedConnection = connection}} -- Track per character
 local autoSaveConnection = nil
 local lastAutoSaveTime = 0
 
@@ -127,7 +129,7 @@ end
 
 -- Connect touch event for checkpoint part
 function MainServer.ConnectCheckpointPart(touchPart, checkpointModel)
-	touchPart.Touched:Connect(function(hit)
+	local touchConnection = touchPart.Touched:Connect(function(hit)
 		local character = hit.Parent
 		if not character:FindFirstChild("Humanoid") then return end
 
@@ -136,6 +138,15 @@ function MainServer.ConnectCheckpointPart(touchPart, checkpointModel)
 			MainServer.OnCheckpointTouched(player, touchPart, checkpointModel)
 		end
 	end)
+
+	-- Track checkpoint connections for cleanup
+	local checkpointId = tonumber(string.match(checkpointModel.Name, "%d+")) or checkpointModel:GetAttribute("Order")
+	if checkpointId then
+		if not checkpointConnections[checkpointId] then
+			checkpointConnections[checkpointId] = {}
+		end
+		table.insert(checkpointConnections[checkpointId], touchConnection)
+	end
 end
 
 -- Create leaderstats
@@ -180,14 +191,20 @@ function MainServer.OnPlayerAdded(player)
 	DataManager.LoadPlayerData(player)
 
 	-- Restore touched checkpoints from persistent data
+	local restoredCount = 0
 	if playerData.touchedCheckpoints then
 		for checkpointId, touched in pairs(playerData.touchedCheckpoints) do
 			if touched then
 				playerTouchedCheckpoints[userId][checkpointId] = true
 				MainServer.UpdateCheckpointColor(checkpointId, true, player)
-				print(string.format("[MainServer] ✓ Restored touched checkpoint %d for %s", checkpointId, player.Name))
+				restoredCount = restoredCount + 1
 			end
 		end
+	end
+	if restoredCount > 0 then
+		print(string.format("[MainServer] ✓ Restored %d touched checkpoints for %s", restoredCount, player.Name))
+	else
+		print(string.format("[MainServer] ✓ No touched checkpoints to restore for %s", player.Name))
 	end
 
 	-- Only save if data was modified during load
@@ -262,10 +279,11 @@ function MainServer.SetupCharacter(player, character)
 		MainServer.OnCharacterDied(player)
 	end)
 
-	if not playerConnections[player] then
-		playerConnections[player] = {}
+	-- Track humanoid died connection for cleanup per character
+	if not characterConnections[character] then
+		characterConnections[character] = {}
 	end
-	table.insert(playerConnections[player], diedConnection)
+	table.insert(characterConnections[character], diedConnection)
 end
 
 -- Handle death
@@ -969,6 +987,26 @@ function MainServer.Cleanup()
 		heartbeatConnection:Disconnect()
 		heartbeatConnection = nil
 	end
+
+	-- Disconnect all checkpoint connections
+	for checkpointId, connections in pairs(checkpointConnections) do
+		for _, connection in ipairs(connections) do
+			if connection and connection.Connected then
+				connection:Disconnect()
+			end
+		end
+	end
+	checkpointConnections = {}
+
+	-- Disconnect all character connections
+	for character, connections in pairs(characterConnections) do
+		for _, connection in ipairs(connections) do
+			if connection and connection.Connected then
+				connection:Disconnect()
+			end
+		end
+	end
+	characterConnections = {}
 
 	for player in pairs(activePlayers) do
 		DataManager.SavePlayerData(player)
