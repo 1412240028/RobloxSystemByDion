@@ -38,7 +38,7 @@ local CHECKPOINT_COLORS = {
 function MainServer.Init()
 	print("[MainServer] Initializing Unified System v1.5 (Ring Checkpoints)")
 
-	-- ✅ FIXED: Initialize admin system FIRST (before player handlers)
+	-- ✅ Initialize admin system FIRST
 	if Config.ENABLE_ADMIN_SYSTEM then
 		print("[MainServer] Initializing admin system...")
 		local success = SystemManager:Init()
@@ -49,9 +49,10 @@ function MainServer.Init()
 		end
 	end
 
-	-- Setup admin command handling (needs admin system ready)
+	-- Setup admin command handling
 	MainServer.SetupAdminCommands()
 
+	-- Player connection handlers
 	Players.PlayerAdded:Connect(MainServer.OnPlayerAdded)
 	Players.PlayerRemoving:Connect(MainServer.OnPlayerRemoving)
 
@@ -60,8 +61,21 @@ function MainServer.Init()
 		MainServer.OnPlayerAdded(player)
 	end
 
+	-- ✅ FIXED: Sprint Remote Event Handlers
+	print("[MainServer] Setting up Remote Event handlers...")
+	
+	-- Toggle handler
 	RemoteEvents.OnToggleRequested(MainServer.OnSprintToggleRequested)
-	RemoteEvents.OnSyncRequestReceived(MainServer.OnSprintSyncRequest)
+	
+	-- ⭐ SYNC REQUEST HANDLER (YANG HILANG):
+	RemoteEvents.OnSyncRequestReceived(function(player)
+		print("[MainServer] 🔄 Sync request received from:", player.Name)
+		MainServer.OnSprintSyncRequest(player)
+	end)
+	
+	print("[MainServer] ✅ Sprint handlers connected")
+
+	-- Checkpoint handlers
 	RemoteEvents.OnResetRequested(MainServer.ResetPlayerCheckpoints)
 	RemoteEvents.OnRaceQueueJoinReceived(MainServer.OnRaceQueueJoin)
 	RemoteEvents.OnRaceQueueLeaveReceived(MainServer.OnRaceQueueLeave)
@@ -71,18 +85,26 @@ function MainServer.Init()
 		MainServer.ResetPlayerCheckpoints(player)
 	end)
 
+	-- Setup checkpoint touches
 	MainServer.SetupCheckpointTouches()
 
+	-- Start systems
 	MainServer.StartHeartbeat()
 	DataManager.StartAutoSave()
 
+	-- Initialize race system
 	if Config.ENABLE_RACE_SYSTEM then
 		MainServer.InitializeRaceSystem()
 		RaceController.Init()
 		RaceController.StartAutoScheduler()
 	end
 
-	print("[MainServer] Unified System initialized successfully")
+	print("[MainServer] ✅ Unified System initialized successfully")
+	print("[MainServer] 📊 Active handlers:")
+	print("  - Sprint Toggle: ✅")
+	print("  - Sprint Sync Request: ✅")
+	print("  - Checkpoint Reset: ✅")
+	print("  - Race Queue: ✅")
 end
 
 -- Setup checkpoint touch detection
