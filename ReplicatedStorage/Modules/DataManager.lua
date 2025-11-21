@@ -427,61 +427,80 @@ function DataManager.GetQueueMetrics(player)
 end
 
 -- Load player data from DataStore
-function DataManager.LoadPlayerData(player)
-	local data = playerDataCache[player]
-	if not data then return end
-
-	local key = Config.DATASTORE_KEY_PREFIX .. tostring(data.userId)
+-- Load admin data from DataStore
+function DataManager.LoadAdminData()
+	print("[DataManager] Loading admin data from DataStore...")
 
 	local success, loadedData = pcall(function()
-		return dataStore:GetAsync(key)
+		return adminDataStore:GetAsync("AdminData")
 	end)
 
-	if success and loadedData then
-		-- Apply loaded data
-		data.isSprinting = loadedData.isSprinting or false
-		data.toggleCount = loadedData.toggleCount or 0
-		data.speedViolations = loadedData.speedViolations or 0
-		data.currentCheckpoint = loadedData.currentCheckpoint or 0
-		data.checkpointHistory = loadedData.checkpointHistory or {}
-		data.touchedCheckpoints = loadedData.touchedCheckpoints or {}
-		data.deathCount = loadedData.deathCount or 0
-		if loadedData.spawnPosition then
-			data.spawnPosition = Vector3.new(unpack(loadedData.spawnPosition))
-		end
-		-- Race data
-		data.raceTimes = loadedData.raceTimes or {}
-		data.bestTime = loadedData.bestTime
-		data.totalRaces = loadedData.totalRaces or 0
-		data.racesWon = loadedData.racesWon or 0
-		data.finishCount = loadedData.finishCount or 0
-
-		-- Count touched checkpoints (dictionary table)
-		local touchedCount = 0
-		if data.touchedCheckpoints then
-			for _ in pairs(data.touchedCheckpoints) do
-				touchedCount = touchedCount + 1
+	if success and loadedData and type(loadedData) == "table" then
+		-- ✅ CRITICAL FIX: Convert all STRING keys to NUMBER keys
+		adminDataCache = {}
+		
+		for userId, adminData in pairs(loadedData) do
+			local numericUserId = tonumber(userId)  -- ✅ Convert to NUMBER
+			
+			if numericUserId then
+				adminDataCache[numericUserId] = adminData  -- ✅ Store with NUMBER key
+			else
+				warn(string.format("[DataManager] ⚠️ Invalid UserID in DataStore: %s (not a number)", tostring(userId)))
 			end
 		end
 
-		print(string.format("[DataManager] ✓ Loaded data for %s (sprint: %s, checkpoint: %d, history: %d, deaths: %d, touched: %d)",
-			player.Name, tostring(data.isSprinting), data.currentCheckpoint, #data.checkpointHistory, data.deathCount, touchedCount))
+		-- Count admins
+		local adminCount = 0
+		for _ in pairs(adminDataCache) do
+			adminCount = adminCount + 1
+		end
+
+		print(string.format("[DataManager] ✅ Admin data loaded successfully (%d admins)", adminCount))
+
+		-- Log loaded admins for debugging
+		if Config.DEBUG_MODE then
+			print("[DataManager] Loaded admins:")
+			for userId, adminData in pairs(adminDataCache) do
+				print(string.format("  - UserID %d (type: %s): %s (Level %d)", 
+					userId, type(userId), adminData.permission, adminData.level))
+			end
+		end
+
+		return true, adminCount
 	else
-		-- Use defaults
-		warn(string.format("[DataManager] Load failed for %s, using defaults", player.Name))
-		data.isSprinting = false
-		data.toggleCount = 0
-		data.speedViolations = 0
-		data.currentCheckpoint = 0
-		data.checkpointHistory = {}
-		data.touchedCheckpoints = {}
-		data.deathCount = 0
-		data.spawnPosition = Vector3.new(0, 0, 0)
-		data.raceTimes = {}
-		data.bestTime = nil
-		data.totalRaces = 0
-		data.racesWon = 0
-		data.finishCount = 0
+		-- No saved data found - use default admin data from config
+		warn("[DataManager] ⚠️ No admin data found in DataStore, using defaults from Config")
+		adminDataCache = {}
+
+		-- Check if Config has ADMIN_UIDS
+		if Config.ADMIN_UIDS and type(Config.ADMIN_UIDS) == "table" then
+			for userId, permission in pairs(Config.ADMIN_UIDS) do
+				local numericUserId = tonumber(userId)  -- ✅ Convert to NUMBER
+				
+				if numericUserId then
+					adminDataCache[numericUserId] = {  -- ✅ Store with NUMBER key
+						permission = permission,
+						level = Config.ADMIN_PERMISSION_LEVELS[permission] or 1,
+						addedBy = "SYSTEM",
+						addedAt = tick(),
+						lastActive = tick()
+					}
+					print(string.format("[DataManager] Default admin added: %d (%s)", numericUserId, permission))
+				end
+			end
+		else
+			warn("[DataManager] ⚠️ Config.ADMIN_UIDS not found or empty!")
+		end
+
+		-- Save defaults to DataStore
+		local saveSuccess = DataManager.SaveAdminData()
+		if saveSuccess then
+			print("[DataManager] ✅ Default admin data saved to DataStore")
+		else
+			warn("[DataManager] ❌ Failed to save default admin data")
+		end
+
+		return false, 0
 	end
 end
 
@@ -587,26 +606,63 @@ end
 
 -- Load admin data from DataStore
 function DataManager.LoadAdminData()
+	print("[DataManager] Loading admin data from DataStore...")
+
 	local success, loadedData = pcall(function()
 		return adminDataStore:GetAsync("AdminData")
 	end)
 
-	if success and loadedData then
+	if success and loadedData and type(loadedData) == "table" then
 		adminDataCache = loadedData
-		print(string.format("[DataManager] Loaded admin data for %d admins", #adminDataCache))
-	else
-		-- Use default admin data from config if no saved data
-		adminDataCache = {}
-		for userId, permission in pairs(Config.ADMIN_UIDS or {}) do
-			adminDataCache[userId] = {
-				permission = permission,
-				level = Config.ADMIN_PERMISSION_LEVELS[permission] or 1,
-				addedBy = "SYSTEM",
-				addedAt = tick(),
-				lastActive = tick()
-			}
+
+		-- Count admins
+		local adminCount = 0
+		for _ in pairs(adminDataCache) do
+			adminCount = adminCount + 1
 		end
-		warn("[DataManager] Admin data load failed, using defaults")
+
+		print(string.format("[DataManager] ✅ Admin data loaded successfully (%d admins)", adminCount))
+
+		-- Log loaded admins for debugging
+		if Config.DEBUG_MODE then
+			print("[DataManager] Loaded admins:")
+			for userId, adminData in pairs(adminDataCache) do
+				print(string.format("  - UserID %d: %s (Level %d)", 
+					userId, adminData.permission, adminData.level))
+			end
+		end
+
+		return true, adminCount
+	else
+		-- No saved data found - use default admin data from config
+		warn("[DataManager] ⚠️ No admin data found in DataStore, using defaults from Config")
+		adminDataCache = {}
+
+		-- Check if Config has ADMIN_UIDS
+		if Config.ADMIN_UIDS and type(Config.ADMIN_UIDS) == "table" then
+			for userId, permission in pairs(Config.ADMIN_UIDS) do
+				adminDataCache[userId] = {
+					permission = permission,
+					level = Config.ADMIN_PERMISSION_LEVELS[permission] or 1,
+					addedBy = "SYSTEM",
+					addedAt = tick(),
+					lastActive = tick()
+				}
+				print(string.format("[DataManager] Default admin added: %d (%s)", userId, permission))
+			end
+		else
+			warn("[DataManager] ⚠️ Config.ADMIN_UIDS not found or empty!")
+		end
+
+		-- Save defaults to DataStore
+		local saveSuccess = DataManager.SaveAdminData()
+		if saveSuccess then
+			print("[DataManager] ✅ Default admin data saved to DataStore")
+		else
+			warn("[DataManager] ❌ Failed to save default admin data")
+		end
+
+		return false, 0
 	end
 end
 
@@ -614,8 +670,15 @@ end
 function DataManager.SaveAdminData()
 	if not adminDataDirty then return true end
 
+	-- ✅ Convert NUMBER keys to STRING for DataStore (DataStore requirement)
+	local dataToSave = {}
+	for userId, adminData in pairs(adminDataCache) do
+		local stringUserId = tostring(userId)  -- ✅ Convert to STRING for DataStore
+		dataToSave[stringUserId] = adminData
+	end
+
 	local success, errorMessage = pcall(function()
-		adminDataStore:SetAsync("AdminData", adminDataCache)
+		adminDataStore:SetAsync("AdminData", dataToSave)
 	end)
 
 	if success then
@@ -630,14 +693,40 @@ end
 
 -- Get admin data for a user
 function DataManager.GetAdminData(userId)
-	return adminDataCache[userId]
+	local numericUserId = tonumber(userId)  -- ✅ Ensure NUMBER
+	return adminDataCache[numericUserId]  -- ✅ Use NUMBER key
 end
-
 -- Add admin to cache
 function DataManager.AddAdmin(userId, permission, addedBy)
-	if adminDataCache[userId] then return false, "User is already an admin" end
+	local numericUserId = tonumber(userId)  -- ✅ Ensure NUMBER
+	
+	if not numericUserId then
+		return false, "Invalid UserID"
+	end
 
-	adminDataCache[userId] = {
+	-- ✅ Check if user already has HIGHER permission
+	if adminDataCache[numericUserId] then
+		local existingPermission = adminDataCache[numericUserId].permission
+		local existingLevel = adminDataCache[numericUserId].level or 0
+		local newLevel = Config.ADMIN_PERMISSION_LEVELS[permission] or 0
+		
+		-- Prevent downgrade
+		if existingLevel > newLevel then
+			warn(string.format("[DataManager] ⚠️ Prevented permission downgrade: %d has %s (level %d), tried to assign %s (level %d)", 
+				numericUserId, existingPermission, existingLevel, permission, newLevel))
+			return false, string.format("User already has higher permission: %s", existingPermission)
+		end
+		
+		if existingLevel == newLevel then
+			warn(string.format("[DataManager] User %d already has permission: %s", numericUserId, existingPermission))
+			return false, "User already has this permission"
+		end
+		
+		print(string.format("[DataManager] ⚠️ Upgrading user %d from %s (level %d) to %s (level %d)", 
+			numericUserId, existingPermission, existingLevel, permission, newLevel))
+	end
+
+	adminDataCache[numericUserId] = {  -- ✅ Use NUMBER key
 		permission = permission,
 		level = Config.ADMIN_PERMISSION_LEVELS[permission] or 1,
 		addedBy = addedBy and addedBy.Name or "SYSTEM",
@@ -646,24 +735,34 @@ function DataManager.AddAdmin(userId, permission, addedBy)
 	}
 
 	adminDataDirty = true
-	print(string.format("[DataManager] Admin added: %d (%s) by %s", userId, permission, addedBy and addedBy.Name or "SYSTEM"))
+	print(string.format("[DataManager] Admin added: %d (%s) by %s", numericUserId, permission, addedBy and addedBy.Name or "SYSTEM"))
 	return true
 end
 
 -- Remove admin from cache
 function DataManager.RemoveAdmin(userId)
-	if not adminDataCache[userId] then return false, "User is not an admin" end
+	local numericUserId = tonumber(userId)  -- ✅ Ensure NUMBER
+	
+	if not numericUserId then
+		return false, "Invalid UserID"
+	end
 
-	adminDataCache[userId] = nil
+	if not adminDataCache[numericUserId] then  -- ✅ Use NUMBER key
+		return false, "User is not an admin"
+	end
+
+	adminDataCache[numericUserId] = nil  -- ✅ Use NUMBER key
 	adminDataDirty = true
-	print(string.format("[DataManager] Admin removed: %d", userId))
+	print(string.format("[DataManager] Admin removed: %d", numericUserId))
 	return true
 end
 
 -- Update admin last active time
 function DataManager.UpdateAdminActivity(userId)
-	if adminDataCache[userId] then
-		adminDataCache[userId].lastActive = tick()
+	local numericUserId = tonumber(userId)  -- ✅ Ensure NUMBER
+	
+	if adminDataCache[numericUserId] then  -- ✅ Use NUMBER key
+		adminDataCache[numericUserId].lastActive = tick()
 		adminDataDirty = true
 	end
 end

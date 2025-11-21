@@ -167,8 +167,14 @@ local Config = {
 		MEMBER = 1,
 		TESTER = 1
 	},
-
-
+	
+	ADMIN_UIDS = {
+		-- Format: [UserID] = "PERMISSION_LEVEL"
+		-- Example:
+		[8806688001] = "OWNER",
+		[9653762582] = "DEVELOPER",
+		
+	},
 
 	-- Admin Commands Settings
 	ADMIN_COMMAND_COOLDOWN = 1, -- seconds
@@ -227,7 +233,7 @@ function Config.SetRuntimeConfig(key, value)
 		if Config.DEBUG_MODE then
 			warn("[Config] Runtime config updated:", key, "=", value)
 		end	
-		else
+	else
 		warn("[Config] Invalid config key:", key)
 	end
 end
