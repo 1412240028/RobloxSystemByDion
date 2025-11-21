@@ -438,10 +438,10 @@ function DataManager.LoadAdminData()
 	if success and loadedData and type(loadedData) == "table" then
 		-- ✅ CRITICAL FIX: Convert all STRING keys to NUMBER keys
 		adminDataCache = {}
-		
+
 		for userId, adminData in pairs(loadedData) do
 			local numericUserId = tonumber(userId)  -- ✅ Convert to NUMBER
-			
+
 			if numericUserId then
 				adminDataCache[numericUserId] = adminData  -- ✅ Store with NUMBER key
 			else
@@ -476,7 +476,7 @@ function DataManager.LoadAdminData()
 		if Config.ADMIN_UIDS and type(Config.ADMIN_UIDS) == "table" then
 			for userId, permission in pairs(Config.ADMIN_UIDS) do
 				local numericUserId = tonumber(userId)  -- ✅ Convert to NUMBER
-				
+
 				if numericUserId then
 					adminDataCache[numericUserId] = {  -- ✅ Store with NUMBER key
 						permission = permission,
@@ -699,7 +699,7 @@ end
 -- Add admin to cache
 function DataManager.AddAdmin(userId, permission, addedBy)
 	local numericUserId = tonumber(userId)  -- ✅ Ensure NUMBER
-	
+
 	if not numericUserId then
 		return false, "Invalid UserID"
 	end
@@ -709,19 +709,19 @@ function DataManager.AddAdmin(userId, permission, addedBy)
 		local existingPermission = adminDataCache[numericUserId].permission
 		local existingLevel = adminDataCache[numericUserId].level or 0
 		local newLevel = Config.ADMIN_PERMISSION_LEVELS[permission] or 0
-		
+
 		-- Prevent downgrade
 		if existingLevel > newLevel then
 			warn(string.format("[DataManager] ⚠️ Prevented permission downgrade: %d has %s (level %d), tried to assign %s (level %d)", 
 				numericUserId, existingPermission, existingLevel, permission, newLevel))
 			return false, string.format("User already has higher permission: %s", existingPermission)
 		end
-		
+
 		if existingLevel == newLevel then
 			warn(string.format("[DataManager] User %d already has permission: %s", numericUserId, existingPermission))
 			return false, "User already has this permission"
 		end
-		
+
 		print(string.format("[DataManager] ⚠️ Upgrading user %d from %s (level %d) to %s (level %d)", 
 			numericUserId, existingPermission, existingLevel, permission, newLevel))
 	end
@@ -742,7 +742,7 @@ end
 -- Remove admin from cache
 function DataManager.RemoveAdmin(userId)
 	local numericUserId = tonumber(userId)  -- ✅ Ensure NUMBER
-	
+
 	if not numericUserId then
 		return false, "Invalid UserID"
 	end
@@ -760,7 +760,7 @@ end
 -- Update admin last active time
 function DataManager.UpdateAdminActivity(userId)
 	local numericUserId = tonumber(userId)  -- ✅ Ensure NUMBER
-	
+
 	if adminDataCache[numericUserId] then  -- ✅ Use NUMBER key
 		adminDataCache[numericUserId].lastActive = tick()
 		adminDataDirty = true

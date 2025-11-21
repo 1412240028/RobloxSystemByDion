@@ -65,16 +65,16 @@ function MainServer.Init()
 
 	-- ✅ FIXED: Sprint Remote Event Handlers
 	print("[MainServer] Setting up Remote Event handlers...")
-	
+
 	-- Toggle handler
 	RemoteEvents.OnToggleRequested(MainServer.OnSprintToggleRequested)
-	
+
 	-- ⭐ SYNC REQUEST HANDLER (YANG HILANG):
 	RemoteEvents.OnSyncRequestReceived(function(player)
 		print("[MainServer] 🔄 Sync request received from:", player.Name)
 		MainServer.OnSprintSyncRequest(player)
 	end)
-	
+
 	print("[MainServer] ✅ Sprint handlers connected")
 
 	-- Checkpoint handlers
@@ -243,43 +243,70 @@ function MainServer.SetupCharacter(player, character)
 	local playerData = activePlayers[player]
 	if not playerData then return end
 
-	task.wait(0.1)
+	-- Small delay to ensure character is fully loaded
+	task.wait(0.2)
 
 	playerData.character = character
 	local humanoid = character:FindFirstChild("Humanoid")
-	if humanoid then
-		playerData.humanoid = humanoid
-
-		local targetSpeed = playerData.isSprinting and Config.SPRINT_SPEED or Config.NORMAL_SPEED
-		humanoid.WalkSpeed = targetSpeed
-
-		if playerData.spawnPosition and playerData.spawnPosition ~= Vector3.new(0, 0, 0) then
-			character:MoveTo(playerData.spawnPosition)
-			print(string.format("[MainServer] %s respawned at checkpoint %d", 
-				player.Name, playerData.currentCheckpoint or 0))
-		end
-
-		local function sendSync()
-			RemoteEvents.SendSync(player, {
-				isSprinting = playerData.isSprinting,
-				currentSpeed = targetSpeed,
-				timestamp = tick()
-			})
-		end
-
-		sendSync()
-		task.delay(0.1, sendSync)
-		task.delay(0.3, sendSync)
-
-		print(string.format("[MainServer] Character setup for %s - sprint state: %s (speed: %d)",
-			player.Name, playerData.isSprinting and "ON" or "OFF", targetSpeed))
+	if not humanoid then 
+		warn(string.format("[MainServer] ⚠️ Humanoid not found for %s", player.Name))
+		return 
 	end
 
+	playerData.humanoid = humanoid
+
+	-- ✅ Apply speed immediately (no need to wait for client request)
+	local targetSpeed = playerData.isSprinting and Config.SPRINT_SPEED or Config.NORMAL_SPEED
+	humanoid.WalkSpeed = targetSpeed
+
+	-- ✅ Teleport to saved spawn position
+	if playerData.spawnPosition and playerData.spawnPosition ~= Vector3.new(0, 0, 0) then
+		character:MoveTo(playerData.spawnPosition)
+		print(string.format("[MainServer] %s respawned at checkpoint %d", 
+			player.Name, playerData.currentCheckpoint or 0))
+	end
+
+	-- ✅ CRITICAL: Send sync MULTIPLE times with delays (aggressive sync)
+	local function sendSyncMultipleTimes()
+		local syncData = {
+			isSprinting = playerData.isSprinting,
+			currentSpeed = targetSpeed,
+			timestamp = tick()
+		}
+
+		-- Send immediately
+		RemoteEvents.SendSync(player, syncData)
+
+		-- Send again after small delays (total 5 attempts over 2 seconds)
+		for i = 1, 4 do
+			task.delay(0.1 * i, function()
+				-- Re-check if player still exists
+				if not player or not player.Parent then return end
+				if not activePlayers[player] then return end
+
+				-- Update timestamp
+				syncData.timestamp = tick()
+				RemoteEvents.SendSync(player, syncData)
+
+				if Config.DEBUG_MODE then
+					print(string.format("[MainServer] 🔄 Sync sent to %s (attempt %d/5)", 
+						player.Name, i + 1))
+				end
+			end)
+		end
+	end
+
+	-- ✅ Start aggressive sync
+	sendSyncMultipleTimes()
+
+	print(string.format("[MainServer] ✅ Character setup for %s - sprint: %s (speed: %d)",
+		player.Name, playerData.isSprinting and "ON" or "OFF", targetSpeed))
+
+	-- Setup death handler
 	local diedConnection = humanoid.Died:Connect(function()
 		MainServer.OnCharacterDied(player)
 	end)
 
-	-- Track humanoid died connection for cleanup per character
 	if not characterConnections[character] then
 		characterConnections[character] = {}
 	end
@@ -334,19 +361,38 @@ end
 function MainServer.OnSprintSyncRequest(player)
 	local playerData = activePlayers[player]
 	if not playerData then
-		warn(string.format("[MainServer] Sync request failed for %s - player data not found", player.Name))
+		warn(string.format("[MainServer] ⚠️ Sync request failed - player data not found: %s", player.Name))
+		return
+	end
+
+	-- Check if character is ready
+	if not playerData.character or not playerData.humanoid then
+		warn(string.format("[MainServer] ⚠️ Sync request failed - character not ready: %s", player.Name))
+
+		-- Schedule retry if character is loading
+		if player.Character then
+			task.delay(0.5, function()
+				if activePlayers[player] then
+					MainServer.OnSprintSyncRequest(player)
+				end
+			end)
+		end
 		return
 	end
 
 	local targetSpeed = playerData.isSprinting and Config.SPRINT_SPEED or Config.NORMAL_SPEED
 
+	-- ✅ Apply speed on server first
+	playerData.humanoid.WalkSpeed = targetSpeed
+
+	-- ✅ Then send sync
 	RemoteEvents.SendSync(player, {
 		isSprinting = playerData.isSprinting,
 		currentSpeed = targetSpeed,
 		timestamp = tick()
 	})
 
-	print(string.format("[MainServer] Sprint sync sent to %s (state: %s, speed: %d)",
+	print(string.format("[MainServer] 🔄 Sync sent to %s (state: %s, speed: %d)",
 		player.Name, playerData.isSprinting and "ON" or "OFF", targetSpeed))
 end
 

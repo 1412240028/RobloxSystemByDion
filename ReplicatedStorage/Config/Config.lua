@@ -172,7 +172,7 @@ local Config = {
 		-- Format: [UserID] = "PERMISSION_LEVEL"
 		-- Example:
 		[8806688001] = "OWNER",
-		[9653762582] = "DEVELOPER",
+		[9653762582] = "DEVELOPER"
 		
 	},
 

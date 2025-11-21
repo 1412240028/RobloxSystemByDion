@@ -107,7 +107,7 @@ function SystemManager:BuildAdminCache()
 		if type(adminData) == "table" and adminData.permission then
 			-- ✅ CRITICAL FIX: Convert userId to NUMBER
 			local numericUserId = tonumber(userId)
-			
+
 			if numericUserId then
 				adminCache[numericUserId] = {  -- ✅ Use NUMBER as key
 					permission = adminData.permission,
@@ -129,7 +129,7 @@ function SystemManager:BuildAdminCache()
 	end
 
 	cacheReady = true
-	
+
 	if cachedCount > 0 then
 		Log("INFO", "✅ Admin cache built successfully: %d admins loaded", cachedCount)
 	else
@@ -149,7 +149,7 @@ function SystemManager:IsAdmin(player)
 
 	local numericUserId = tonumber(player.UserId)  -- ✅ Ensure NUMBER
 	local adminData = adminCache[numericUserId]  -- ✅ Use NUMBER key
-	
+
 	if adminData then
 		if adminData.permission == "MEMBER" then
 			return false
@@ -181,7 +181,7 @@ end
 -- Add admin at runtime (for owner-level operations)
 function SystemManager:AddAdmin(addedBy, userId, permission)
 	local numericUserId = tonumber(userId)  -- ✅ Ensure NUMBER
-	
+
 	if not numericUserId then
 		return false, "Invalid UserID"
 	end
@@ -224,7 +224,7 @@ end
 -- Remove admin at runtime
 function SystemManager:RemoveAdmin(removedBy, userId)
 	local numericUserId = tonumber(userId)  -- ✅ Ensure NUMBER
-	
+
 	if not numericUserId then
 		return false, "Invalid UserID"
 	end
@@ -637,11 +637,11 @@ function SystemManager:OnPlayerAdded(player)
 	-- Wait for cache to be ready
 	local maxWaitTime = 10
 	local startTime = tick()
-	
+
 	while not cacheReady and (tick() - startTime) < maxWaitTime do
 		task.wait(0.1)
 	end
-	
+
 	if not cacheReady then
 		warn(string.format("[SystemManager] ⚠️ Cache still not ready after %ds for %s", 
 			maxWaitTime, player.Name))
@@ -652,7 +652,7 @@ function SystemManager:OnPlayerAdded(player)
 		player.UserId, type(player.UserId)))
 	print(string.format("[SystemManager] DEBUG - adminCache type: %s", type(adminCache)))
 	print(string.format("[SystemManager] DEBUG - adminCache size: %d", self:GetAdminCount()))
-	
+
 	-- ✅ Debug: Print all cached admins WITH KEY TYPES
 	if Config.DEBUG_MODE then
 		print("[SystemManager] DEBUG - Current adminCache contents:")
@@ -665,10 +665,10 @@ function SystemManager:OnPlayerAdded(player)
 	-- ✅ CRITICAL FIX: Ensure we're checking with NUMBER key
 	local numericUserId = tonumber(player.UserId)
 	local existingAdmin = adminCache[numericUserId]  -- ✅ Use NUMBER key
-	
+
 	print(string.format("[SystemManager] DEBUG - Looking for key: %d, Found: %s", 
 		numericUserId, existingAdmin and "YES" or "NO"))
-	
+
 	if existingAdmin then
 		print(string.format("[SystemManager] ✅ FOUND in cache - %s has role: %s (Level %d)", 
 			player.Name, existingAdmin.permission, existingAdmin.level))
@@ -677,27 +677,27 @@ function SystemManager:OnPlayerAdded(player)
 
 		local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
 		DataManager.UpdateAdminActivity(player.UserId)
-		
+
 		print(string.format("[SystemManager] Welcome %s - Role: %s (Level %d)", 
 			player.Name, existingAdmin.permission, existingAdmin.level))
 	else
 		print(string.format("[SystemManager] ⚠️ NOT FOUND in cache - UserID %d", player.UserId))
-		
+
 		-- Double-check DataManager directly
 		local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
 		local dmAdminData = DataManager.GetAdminData(player.UserId)
-		
+
 		if dmAdminData then
 			warn(string.format("[SystemManager] ❌ CRITICAL: Found in DataManager but NOT in SystemManager cache!"))
 			warn(string.format("[SystemManager] ❌ DataManager has: %s (Level %d)", dmAdminData.permission, dmAdminData.level))
-			
+
 			-- Sync to local cache
 			adminCache[numericUserId] = {  -- ✅ Use NUMBER key
 				permission = dmAdminData.permission,
 				level = dmAdminData.level,
 				lastActive = tick()
 			}
-			
+
 			print(string.format("[SystemManager] ✅ Synced from DataManager - %s: %s (Level %d)", 
 				player.Name, dmAdminData.permission, dmAdminData.level))
 		else
@@ -721,14 +721,14 @@ function SystemManager:AssignMemberRole(player)
 			player.Name, adminCache[numericUserId].permission))
 		return
 	end
-	
+
 	-- Check DataManager one last time
 	local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
 	local dmAdminData = DataManager.GetAdminData(userId)
-	
+
 	if dmAdminData then
 		warn(string.format("[SystemManager] ⚠️ AssignMemberRole blocked - DataManager has: %s", dmAdminData.permission))
-		
+
 		-- Sync to local cache
 		adminCache[numericUserId] = {  -- ✅ Use NUMBER key
 			permission = dmAdminData.permission,
@@ -740,7 +740,7 @@ function SystemManager:AssignMemberRole(player)
 
 	-- NOW safe to assign MEMBER
 	print(string.format("[SystemManager] Assigning MEMBER role to %s (UserID: %d)", player.Name, userId))
-	
+
 	adminCache[numericUserId] = {  -- ✅ Use NUMBER key
 		permission = "MEMBER",
 		level = Config.ADMIN_PERMISSION_LEVELS.MEMBER or 1,
