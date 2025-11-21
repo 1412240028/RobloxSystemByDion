@@ -35,6 +35,9 @@ local RemoteEvents = {
 	-- Checkpoint Notification Events
 	CheckpointSkipNotificationEvent = CheckpointEventsFolder:FindFirstChild("CheckpointSkipNotificationEvent"), -- RemoteEvent: Server -> Client
 	CheckpointSuccessNotificationEvent = CheckpointEventsFolder:FindFirstChild("CheckpointSuccessNotificationEvent"), -- RemoteEvent: Server -> Client
+
+	-- Admin Remote Events
+	AdminCacheSyncEvent = CheckpointEventsFolder:FindFirstChild("AdminCacheSyncEvent"), -- RemoteEvent: Server -> Client
 }
 
 -- Fallback warning if events not found
@@ -88,6 +91,10 @@ end
 
 if not RemoteEvents.RaceQueueUpdateEvent then
 	warn("[RemoteEvents] RaceQueueUpdateEvent not found! Race queue updates may not work properly.")
+end
+
+if not RemoteEvents.AdminCacheSyncEvent then
+	warn("[RemoteEvents] AdminCacheSyncEvent not found! Admin cache sync may not work properly.")
 end
 
 -- Helper Functions
@@ -431,6 +438,26 @@ function RemoteEvents.OnCheckpointSuccessNotificationReceived(callback)
 	end
 	assert(typeof(callback) == "function", "callback must be function")
 	return RemoteEvents.CheckpointSuccessNotificationEvent.OnClientEvent:Connect(callback)
+end
+
+-- Server: Send admin cache sync to all clients
+function RemoteEvents.BroadcastAdminCacheSync(adminCache)
+	if not RemoteEvents.AdminCacheSyncEvent then
+		warn("[RemoteEvents] Cannot broadcast admin cache sync - AdminCacheSyncEvent not found!")
+		return
+	end
+	assert(typeof(adminCache) == "table", "adminCache must be table")
+	RemoteEvents.AdminCacheSyncEvent:FireAllClients(adminCache)
+end
+
+-- Client: Connect to admin cache sync event
+function RemoteEvents.OnAdminCacheSyncReceived(callback)
+	if not RemoteEvents.AdminCacheSyncEvent then
+		warn("[RemoteEvents] Cannot connect to admin cache sync event - AdminCacheSyncEvent not found!")
+		return function() end -- Return dummy function
+	end
+	assert(typeof(callback) == "function", "callback must be function")
+	return RemoteEvents.AdminCacheSyncEvent.OnClientEvent:Connect(callback)
 end
 
 return RemoteEvents

@@ -1060,7 +1060,7 @@ function MainServer.Cleanup()
 		heartbeatConnection = nil
 	end
 
-	-- Disconnect all checkpoint connections
+	-- ✅ FIXED: Disconnect all checkpoint connections
 	for checkpointId, connections in pairs(checkpointConnections) do
 		for _, connection in ipairs(connections) do
 			if connection and connection.Connected then
@@ -1070,7 +1070,7 @@ function MainServer.Cleanup()
 	end
 	checkpointConnections = {}
 
-	-- Disconnect all character connections
+	-- ✅ FIXED: Disconnect all character connections
 	for character, connections in pairs(characterConnections) do
 		for _, connection in ipairs(connections) do
 			if connection and connection.Connected then
@@ -1079,6 +1079,16 @@ function MainServer.Cleanup()
 		end
 	end
 	characterConnections = {}
+
+	-- ✅ FIXED: Disconnect all player connections
+	for player, connections in pairs(playerConnections) do
+		for _, connection in ipairs(connections) do
+			if connection and connection.Connected then
+				connection:Disconnect()
+			end
+		end
+	end
+	playerConnections = {}
 
 	for player in pairs(activePlayers) do
 		DataManager.SavePlayerData(player)

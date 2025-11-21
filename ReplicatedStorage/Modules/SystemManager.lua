@@ -219,6 +219,10 @@ function SystemManager:AddAdmin(addedBy, userId, permission)
 		lastActive = tick()
 	}
 
+	-- ✅ Sync updated cache to all clients
+	local RemoteEvents = require(game.ReplicatedStorage.Remotes.RemoteEvents)
+	RemoteEvents.BroadcastAdminCacheSync(adminCache)
+
 	Log("INFO", "Admin added: %d (%s) by %s", numericUserId, permission, addedBy.Name)
 	return true, "Admin added successfully"
 end
@@ -532,9 +536,27 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
 		local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
 		DataManager.UpdateFinishCount(targetPlayer)
 		success, result = true, string.format("Force finished race for %s", targetPlayer.Name)
+	elseif command == "joinrace" then
+		-- ✅ NEW: Player-accessible race queue join command
+		local RaceController = require(game.ReplicatedStorage.Modules.RaceController)
+		local success, reason = RaceController.JoinRaceQueue(player)
+		if success then
+			success, result = true, "Joined race queue successfully"
+		else
+			success, result = false, reason or "Failed to join race queue"
+		end
+	elseif command == "leaverace" then
+		-- ✅ NEW: Player-accessible race queue leave command
+		local RaceController = require(game.ReplicatedStorage.Modules.RaceController)
+		local success, reason = RaceController.LeaveRaceQueue(player)
+		if success then
+			success, result = true, "Left race queue successfully"
+		else
+			success, result = false, reason or "Failed to leave race queue"
+		end
 	elseif command == "help" then
 		local helpText = [[
-=== Checkpoint System Admin Commands ===
+=== Checkpoint System Commands ===
 
 GENERAL:
   status - Show system status
@@ -553,6 +575,8 @@ RACE COMMANDS:
   startrace - Start a race (MOD+)
   endrace - End current race (MOD+)
   race status - Show race status
+  joinrace - Join the race queue
+  leaverace - Leave the race queue
 
 ADMIN MANAGEMENT (OWNER+):
   add_admin <userId> <permission> - Add admin
@@ -764,16 +788,34 @@ end
 function SystemManager:GetPlayerRoleInfo(player)
 	if not player then return nil end
 
-	local userId = player.UserId
-	if not adminCache[userId] then
-		return {
-			permission = "NONE",
-			level = 0,
-			isAdmin = false
-		}
+	local numericUserId = tonumber(player.UserId)  -- ✅ Ensure NUMBER key
+	local roleData = adminCache[numericUserId]  -- ✅ Use NUMBER key
+
+	if not roleData then
+		-- Debug: Log why not found
+		Log("DEBUG", "GetPlayerRoleInfo: No role found for UserID %d (cache size: %d)", numericUserId, self:GetAdminCount())
+
+		-- Try to sync from DataManager as last resort
+		local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
+		local dmAdminData = DataManager.GetAdminData(player.UserId)
+
+		if dmAdminData then
+			Log("DEBUG", "GetPlayerRoleInfo: Found in DataManager, syncing to cache")
+			adminCache[numericUserId] = {  -- ✅ Use NUMBER key
+				permission = dmAdminData.permission,
+				level = dmAdminData.level,
+				lastActive = tick()
+			}
+			roleData = adminCache[numericUserId]
+		else
+			return {
+				permission = "NONE",
+				level = 0,
+				isAdmin = false
+			}
+		end
 	end
 
-	local roleData = adminCache[userId]
 	return {
 		permission = roleData.permission,
 		level = roleData.level,
