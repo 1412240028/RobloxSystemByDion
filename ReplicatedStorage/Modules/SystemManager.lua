@@ -12,6 +12,7 @@ local SystemManager = {}
 -- Private variables
 local adminCache = {}
 local commandCooldowns = {} -- {userId = {command = lastUsedTime}}
+local remoteEventRateLimits = {} -- {userId = {eventName = {count, lastReset}}}
 local systemStatus = {
     initialized = false,
     checkpointSystemActive = false,
@@ -53,6 +54,9 @@ function SystemManager:Init()
 
     -- Build admin cache
     self:BuildAdminCache()
+
+    -- Initialize rate limiting system
+    self:InitRateLimiting()
 
     -- Initialize subsystems
     systemStatus.checkpointSystemActive = true -- Will be set by actual modules
@@ -559,11 +563,115 @@ function SystemManager:AssignMemberRole(player)
     end
 end
 
+-- Initialize rate limiting system
+function SystemManager:InitRateLimiting()
+    Log("INFO", "Initializing rate limiting system...")
+
+    -- Connect to remote events for rate limiting
+    local RemoteEvents = require(game.ReplicatedStorage.Remotes.RemoteEvents)
+
+    -- Rate limit sprint toggle events
+    RemoteEvents.OnToggleRequested(function(player, requestedState)
+        if not self:CheckRateLimit(player, "SprintToggle", Config.MAX_TOGGLES_PER_SECOND or 5) then
+            AdminLogger:Log(AdminLogger.Levels.WARN, "RATE_LIMIT_EXCEEDED", player, nil, {
+                event = "SprintToggle",
+                limit = Config.MAX_TOGGLES_PER_SECOND or 5
+            })
+            Log("WARN", "Rate limit exceeded for sprint toggle: %s", player.Name)
+            return -- Block the event
+        end
+        -- Continue with normal processing (this would be handled by MainServer)
+    end)
+
+    -- Rate limit checkpoint touch events
+    RemoteEvents.OnCheckpointTouched(function(player, checkpointId)
+        if not self:CheckRateLimit(player, "CheckpointTouch", 10) then -- 10 touches per second max
+            AdminLogger:Log(AdminLogger.Levels.WARN, "RATE_LIMIT_EXCEEDED", player, nil, {
+                event = "CheckpointTouch",
+                checkpointId = checkpointId,
+                limit = 10
+            })
+            Log("WARN", "Rate limit exceeded for checkpoint touch: %s", player.Name)
+            return -- Block the event
+        end
+        -- Continue with normal processing
+    end)
+
+    -- Rate limit race queue events
+    RemoteEvents.OnRaceQueueJoinReceived(function(player)
+        if not self:CheckRateLimit(player, "RaceQueue", 2) then -- 2 queue actions per second max
+            AdminLogger:Log(AdminLogger.Levels.WARN, "RATE_LIMIT_EXCEEDED", player, nil, {
+                event = "RaceQueue",
+                limit = 2
+            })
+            Log("WARN", "Rate limit exceeded for race queue: %s", player.Name)
+            return -- Block the event
+        end
+        -- Continue with normal processing
+    end)
+
+    Log("INFO", "Rate limiting system initialized")
+end
+
+-- Check rate limit for a player and event
+function SystemManager:CheckRateLimit(player, eventName, maxPerSecond)
+    if not player then return false end
+
+    local userId = player.UserId
+    local currentTime = tick()
+
+    -- Initialize rate limit tracking for user if not exists
+    remoteEventRateLimits[userId] = remoteEventRateLimits[userId] or {}
+    remoteEventRateLimits[userId][eventName] = remoteEventRateLimits[userId][eventName] or {
+        count = 0,
+        lastReset = currentTime
+    }
+
+    local rateData = remoteEventRateLimits[userId][eventName]
+
+    -- Reset counter if a second has passed
+    if currentTime - rateData.lastReset >= 1 then
+        rateData.count = 0
+        rateData.lastReset = currentTime
+    end
+
+    -- Check if under limit
+    if rateData.count < maxPerSecond then
+        rateData.count = rateData.count + 1
+        return true
+    else
+        -- Rate limit exceeded
+        return false
+    end
+end
+
+-- Get rate limit status for debugging
+function SystemManager:GetRateLimitStatus(player)
+    if not player then return nil end
+
+    return remoteEventRateLimits[player.UserId] or {}
+end
+
+-- Reset rate limits for a player (admin command)
+function SystemManager:ResetRateLimits(player)
+    if player and remoteEventRateLimits[player.UserId] then
+        remoteEventRateLimits[player.UserId] = nil
+        Log("INFO", "Rate limits reset for %s", player.Name)
+        return true
+    end
+    return false
+end
+
 -- Cleanup on player leave
 function SystemManager:CleanupPlayer(player)
     -- Clean up command cooldowns
     if commandCooldowns[player.UserId] then
         commandCooldowns[player.UserId] = nil
+    end
+
+    -- Clean up rate limit data
+    if remoteEventRateLimits[player.UserId] then
+        remoteEventRateLimits[player.UserId] = nil
     end
 
     Log("DEBUG", "Player cleanup: %s", player.Name)
