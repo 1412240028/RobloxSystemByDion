@@ -2,14 +2,20 @@
 -- Audit logging system for admin actions
 -- Provides comprehensive logging with DataStore persistence and rotation
 
-local DataStoreService = game:GetService("DataStoreService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Config.Config)
 
 local AdminLogger = {}
 
--- Private variables
-local logDataStore = DataStoreService:GetDataStore("AdminLogs_v1")
+-- Check if running on server (DataStore is server-only)
+local isServer = game:GetService("RunService"):IsServer()
+
+-- Private variables (only initialize on server)
+local logDataStore
+if isServer then
+	local DataStoreService = game:GetService("DataStoreService")
+	logDataStore = DataStoreService:GetDataStore("AdminLogs_v1")
+end
 local logCache = {} -- {timestamp = {action, player, target, details}}
 local logDirty = false
 local logRetention = Config.ADMIN_LOG_RETENTION or 100

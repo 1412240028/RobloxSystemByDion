@@ -1,6 +1,5 @@
--- SprintClient.lua (FIXED REQUIRE ERROR)
--- Client-side controller & input handling
--- Logic & input, separate from GUI
+-- SprintClient.lua - FIXED VERSION
+-- Improved sync request handling with retry logic
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -21,42 +20,38 @@ local throttleActive = false
 local character = nil
 local humanoid = nil
 local isWaitingForSync = false
+local syncRetryCount = 0
+local MAX_SYNC_RETRIES = 3
 
--- GUI reference (will be set by SprintGUI)
+-- GUI reference
 local sprintGUI = nil
 
 -- Initialize client
 function SprintClient.Init()
 	print("[SprintClient] Initializing client for", player.Name)
 
-	-- FIXED: Load and initialize SprintGUI properly
+	-- Load and initialize SprintGUI
 	local success, result = pcall(function()
-		-- Check if SprintGUI exists and is a ModuleScript
 		local guiModule = script.Parent:FindFirstChild("SprintGUI")
-		
+
 		if not guiModule then
 			error("SprintGUI not found in same folder as SprintClient")
 		end
-		
+
 		if not guiModule:IsA("ModuleScript") then
 			error("SprintGUI must be a ModuleScript, found: " .. guiModule.ClassName)
 		end
-		
+
 		return require(guiModule)
 	end)
 
 	if success and result then
-		-- Set references
 		result.SetClient(SprintClient)
 		SprintClient.SetGUI(result)
-		
-		-- Initialize GUI after references are set
 		result.Init()
-		
 		print("[SprintClient] SprintGUI loaded and initialized successfully")
 	else
 		warn("[SprintClient] Failed to load SprintGUI:", result)
-		warn("[SprintClient] Make sure SprintGUI is a ModuleScript in the same folder!")
 	end
 
 	-- Wait for character
@@ -71,25 +66,21 @@ function SprintClient.Init()
 	print("[SprintClient] Client initialized")
 end
 
--- Wait for character and setup
+-- ✅ IMPROVED: Wait for character with better sync request
 function SprintClient.WaitForCharacter()
 	local function onCharacterAdded(newCharacter)
 		character = newCharacter
 		humanoid = character:WaitForChild("Humanoid")
 
-		-- Wait for server to send authoritative state
+		-- Reset sync state
 		isWaitingForSync = true
+		syncRetryCount = 0
 		lastRequestTime = 0
 
-		print("[SprintClient] Character loaded - waiting for server sync...")
+		print("[SprintClient] Character loaded - requesting server sync...")
 
-		-- Timeout fallback if server doesn't respond
-		task.delay(2, function()
-			if isWaitingForSync then
-				warn("[SprintClient] Server sync timeout - requesting manual sync")
-				RemoteEvents.FireToggle(isSprinting)
-			end
-		end)
+		-- ⭐ Request sync immediately with retry logic
+		SprintClient.RequestServerSync()
 	end
 
 	if player.Character then
@@ -99,10 +90,60 @@ function SprintClient.WaitForCharacter()
 	player.CharacterAdded:Connect(onCharacterAdded)
 end
 
+-- ✅ NEW: Request server sync with retry logic
+function SprintClient.RequestServerSync()
+	if syncRetryCount >= MAX_SYNC_RETRIES then
+		warn("[SprintClient] ❌ Max sync retries reached - using default state")
+		isWaitingForSync = false
+		SprintClient.SetLocalState(false) -- Default to OFF
+		return
+	end
+
+	syncRetryCount = syncRetryCount + 1
+	print(string.format("[SprintClient] 🔄 Requesting sync (attempt %d/%d)", syncRetryCount, MAX_SYNC_RETRIES))
+
+	-- Check if SprintSyncRequestEvent exists
+	if not RemoteEvents.SprintSyncRequestEvent then
+		warn("[SprintClient] ⚠️ SprintSyncRequestEvent not found! Creating fallback...")
+
+		-- Fallback: Try requesting via toggle with current state
+		task.wait(0.5)
+		RemoteEvents.FireToggle(false) -- Request with OFF state
+
+		-- Schedule retry
+		task.delay(1, function()
+			if isWaitingForSync then
+				SprintClient.RequestServerSync()
+			end
+		end)
+		return
+	end
+
+	-- Fire sync request to server
+	local success, err = pcall(function()
+		RemoteEvents.SprintSyncRequestEvent:FireServer()
+	end)
+
+	if not success then
+		warn("[SprintClient] ⚠️ Sync request failed:", err)
+	end
+
+	-- Set timeout for this attempt
+	task.delay(2, function()
+		if isWaitingForSync and syncRetryCount < MAX_SYNC_RETRIES then
+			warn(string.format("[SprintClient] ⏱️ Sync timeout (attempt %d) - retrying...", syncRetryCount))
+			SprintClient.RequestServerSync()
+		elseif isWaitingForSync then
+			warn("[SprintClient] ❌ All sync attempts failed - using default state")
+			isWaitingForSync = false
+			SprintClient.SetLocalState(false)
+		end
+	end)
+end
+
 -- Setup input handling
 function SprintClient.SetupInputHandling()
 	-- No keyboard input - using GUI button only
-	-- Mobile touch (handled by GUI)
 end
 
 -- Request sprint toggle
@@ -111,7 +152,7 @@ function SprintClient.RequestToggle()
 		warn("[SprintClient] Toggle blocked: throttle active")
 		return 
 	end
-	
+
 	if isWaitingForSync then 
 		warn("[SprintClient] Still waiting for server sync - ignoring toggle")
 		return 
@@ -144,10 +185,15 @@ function SprintClient.RequestToggle()
 	lastRequestTime = tick()
 end
 
--- Handle server sync
+-- ✅ IMPROVED: Handle server sync
 function SprintClient.OnSyncReceived(syncData)
 	-- Clear waiting flag
+	if isWaitingForSync then
+		print(string.format("[SprintClient] ✅ Sync received after %d attempts", syncRetryCount))
+	end
+
 	isWaitingForSync = false
+	syncRetryCount = 0
 
 	-- Update local state from server (authoritative)
 	local previousState = isSprinting
@@ -160,7 +206,7 @@ function SprintClient.OnSyncReceived(syncData)
 
 	-- Log state changes for debugging
 	if previousState ~= syncData.isSprinting then
-		print(string.format("[SprintClient] State synced from server: %s -> %s",
+		print(string.format("[SprintClient] 🔄 State synced from server: %s -> %s",
 			tostring(previousState), tostring(syncData.isSprinting)))
 	end
 end
@@ -207,6 +253,7 @@ function SprintClient.Cleanup()
 	humanoid = nil
 	sprintGUI = nil
 	isWaitingForSync = false
+	syncRetryCount = 0
 end
 
 -- Initialize when script runs

@@ -3,7 +3,6 @@
 -- ✅ FIXED: Added DirectSavePlayerData function to prevent line 318 error
 -- ✅ FIXED: Improved queue processor reliability
 
-local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -11,9 +10,17 @@ local Config = require(ReplicatedStorage.Config.Config)
 
 local DataManager = {}
 
--- Private variables
-local dataStore = DataStoreService:GetDataStore(Config.DATASTORE_NAME)
-local adminDataStore = DataStoreService:GetDataStore(Config.ADMIN_GLOBAL_DATASTORE)
+-- Check if running on server (DataStore is server-only)
+local isServer = game:GetService("RunService"):IsServer()
+
+-- Private variables (only initialize on server)
+local dataStore
+local adminDataStore
+if isServer then
+	local DataStoreService = game:GetService("DataStoreService")
+	dataStore = DataStoreService:GetDataStore(Config.DATASTORE_NAME)
+	adminDataStore = DataStoreService:GetDataStore(Config.ADMIN_GLOBAL_DATASTORE)
+end
 local playerDataCache = {} -- player -> data
 local adminDataCache = {} -- admin data cache: {userId = {permission, level, addedBy, addedAt, lastActive}}
 local saveQueue = {} -- Queue for save operations to prevent race conditions
@@ -603,7 +610,72 @@ function DataManager.ForceCompleteCheckpoint(player, checkpointId)
 end
 
 -- Admin Data Management Functions
+-- DataManager.lua - Missing LoadPlayerData Function
+-- ✅ ADD THIS FUNCTION to your DataManager.lua (around line 400-500)
 
+-- Load player data from DataStore
+function DataManager.LoadPlayerData(player)
+	local data = playerDataCache[player]
+	if not data then 
+		warn(string.format("[DataManager] ⚠️ LoadPlayerData failed - no cache for %s", player.Name))
+		return 
+	end
+
+	local key = Config.DATASTORE_KEY_PREFIX .. tostring(data.userId)
+
+	local success, loadedData = pcall(function()
+		return dataStore:GetAsync(key)
+	end)
+
+	if success and loadedData then
+		-- Apply loaded data
+		data.isSprinting = loadedData.isSprinting or false
+		data.toggleCount = loadedData.toggleCount or 0
+		data.speedViolations = loadedData.speedViolations or 0
+		data.currentCheckpoint = loadedData.currentCheckpoint or 0
+		data.checkpointHistory = loadedData.checkpointHistory or {}
+		data.touchedCheckpoints = loadedData.touchedCheckpoints or {}
+		data.deathCount = loadedData.deathCount or 0
+
+		if loadedData.spawnPosition then
+			data.spawnPosition = Vector3.new(unpack(loadedData.spawnPosition))
+		end
+
+		-- Race data
+		data.raceTimes = loadedData.raceTimes or {}
+		data.bestTime = loadedData.bestTime
+		data.totalRaces = loadedData.totalRaces or 0
+		data.racesWon = loadedData.racesWon or 0
+		data.finishCount = loadedData.finishCount or 0
+
+		-- Count touched checkpoints (dictionary table)
+		local touchedCount = 0
+		if data.touchedCheckpoints then
+			for _ in pairs(data.touchedCheckpoints) do
+				touchedCount = touchedCount + 1
+			end
+		end
+
+		print(string.format("[DataManager] ✓ Loaded data for %s (sprint: %s, checkpoint: %d, history: %d, deaths: %d, touched: %d)",
+			player.Name, tostring(data.isSprinting), data.currentCheckpoint, #data.checkpointHistory, data.deathCount, touchedCount))
+	else
+		-- Use defaults
+		warn(string.format("[DataManager] Load failed for %s, using defaults", player.Name))
+		data.isSprinting = false
+		data.toggleCount = 0
+		data.speedViolations = 0
+		data.currentCheckpoint = 0
+		data.checkpointHistory = {}
+		data.touchedCheckpoints = {}
+		data.deathCount = 0
+		data.spawnPosition = Vector3.new(0, 0, 0)
+		data.raceTimes = {}
+		data.bestTime = nil
+		data.totalRaces = 0
+		data.racesWon = 0
+		data.finishCount = 0
+	end
+end
 -- Load admin data from DataStore
 function DataManager.LoadAdminData()
 	print("[DataManager] Loading admin data from DataStore...")
@@ -696,64 +768,137 @@ function DataManager.GetAdminData(userId)
 	local numericUserId = tonumber(userId)  -- ✅ Ensure NUMBER
 	return adminDataCache[numericUserId]  -- ✅ Use NUMBER key
 end
--- Add admin to cache
+-- Add admin to cache (IMPROVED VERSION)
 function DataManager.AddAdmin(userId, permission, addedBy)
-	local numericUserId = tonumber(userId)  -- ✅ Ensure NUMBER
+	local numericUserId = tonumber(userId)
 
 	if not numericUserId then
 		return false, "Invalid UserID"
 	end
 
-	-- ✅ Check if user already has HIGHER permission
+	-- ✅ Validate permission exists
+	local newLevel = Config.ADMIN_PERMISSION_LEVELS[permission]
+	if not newLevel then
+		return false, string.format("Invalid permission: %s", permission)
+	end
+
+	-- ✅ Check if user already exists
 	if adminDataCache[numericUserId] then
 		local existingPermission = adminDataCache[numericUserId].permission
 		local existingLevel = adminDataCache[numericUserId].level or 0
-		local newLevel = Config.ADMIN_PERMISSION_LEVELS[permission] or 0
 
-		-- Prevent downgrade
+		-- ✅ HIERARCHY PROTECTION: Prevent any downgrade
 		if existingLevel > newLevel then
-			warn(string.format("[DataManager] ⚠️ Prevented permission downgrade: %d has %s (level %d), tried to assign %s (level %d)", 
+			warn(string.format("[DataManager] 🚫 Downgrade blocked: %d has %s (L%d), cannot assign %s (L%d)", 
 				numericUserId, existingPermission, existingLevel, permission, newLevel))
-			return false, string.format("User already has higher permission: %s", existingPermission)
+			return false, string.format("Cannot downgrade from %s to %s", existingPermission, permission)
 		end
 
+		-- ✅ Same level (no change)
 		if existingLevel == newLevel then
-			warn(string.format("[DataManager] User %d already has permission: %s", numericUserId, existingPermission))
-			return false, "User already has this permission"
+			warn(string.format("[DataManager] ℹ️ User %d already has %s (L%d)", 
+				numericUserId, existingPermission, existingLevel))
+			return false, string.format("User already has permission: %s", existingPermission)
 		end
 
-		print(string.format("[DataManager] ⚠️ Upgrading user %d from %s (level %d) to %s (level %d)", 
-			numericUserId, existingPermission, existingLevel, permission, newLevel))
+		-- ✅ UPGRADE: Log and require confirmation
+		print(string.format("[DataManager] ⬆️ UPGRADE: %d from %s (L%d) → %s (L%d) by %s", 
+			numericUserId, existingPermission, existingLevel, permission, newLevel, 
+			addedBy and addedBy.Name or "SYSTEM"))
 	end
 
-	adminDataCache[numericUserId] = {  -- ✅ Use NUMBER key
+	-- ✅ NEW ADMIN or UPGRADE: Create/update entry
+	adminDataCache[numericUserId] = {
 		permission = permission,
-		level = Config.ADMIN_PERMISSION_LEVELS[permission] or 1,
+		level = newLevel,
 		addedBy = addedBy and addedBy.Name or "SYSTEM",
 		addedAt = tick(),
-		lastActive = tick()
+		lastActive = tick(),
+		-- ✅ Track if this was an upgrade
+		previousPermission = adminDataCache[numericUserId] and adminDataCache[numericUserId].permission or nil
 	}
 
 	adminDataDirty = true
-	print(string.format("[DataManager] Admin added: %d (%s) by %s", numericUserId, permission, addedBy and addedBy.Name or "SYSTEM"))
+
+	local action = adminDataCache[numericUserId].previousPermission and "upgraded" or "added"
+	print(string.format("[DataManager] ✅ Admin %s: %d (%s, L%d) by %s", 
+		action, numericUserId, permission, newLevel, addedBy and addedBy.Name or "SYSTEM"))
+
 	return true
 end
 
--- Remove admin from cache
-function DataManager.RemoveAdmin(userId)
-	local numericUserId = tonumber(userId)  -- ✅ Ensure NUMBER
+-- ✅ NEW: Validate role change authorization
+function DataManager.CanModifyRole(modifierUserId, targetUserId, newPermission)
+	local modifier = adminDataCache[tonumber(modifierUserId)]
+	local target = adminDataCache[tonumber(targetUserId)]
+	local newLevel = Config.ADMIN_PERMISSION_LEVELS[newPermission]
+
+	if not modifier then
+		return false, "Modifier is not an admin"
+	end
+
+	if not newLevel then
+		return false, "Invalid permission level"
+	end
+
+	-- ✅ RULE 1: Cannot modify users at same or higher level (except OWNER)
+	if target and target.level >= modifier.level and modifier.level < 5 then
+		return false, string.format("Cannot modify %s (L%d) - insufficient authority", 
+			target.permission, target.level)
+	end
+
+	-- ✅ RULE 2: Cannot assign higher level than you have
+	if newLevel > modifier.level then
+		return false, string.format("Cannot assign %s (L%d) - you are %s (L%d)", 
+			newPermission, newLevel, modifier.permission, modifier.level)
+	end
+
+	-- ✅ RULE 3: Only OWNER can create/modify OWNER
+	if newPermission == "OWNER" and modifier.level < 5 then
+		return false, "Only OWNER can create/modify OWNER role"
+	end
+
+	-- ✅ RULE 4: Only OWNER and DEVELOPER can create DEVELOPER
+	if newPermission == "DEVELOPER" and modifier.level < 4 then
+		return false, "Only OWNER/DEVELOPER can create DEVELOPER role"
+	end
+
+	return true
+end
+
+-- ✅ IMPROVED: Remove admin with hierarchy check
+function DataManager.RemoveAdmin(userId, removedBy)
+	local numericUserId = tonumber(userId)
 
 	if not numericUserId then
 		return false, "Invalid UserID"
 	end
 
-	if not adminDataCache[numericUserId] then  -- ✅ Use NUMBER key
+	if not adminDataCache[numericUserId] then
 		return false, "User is not an admin"
 	end
 
-	adminDataCache[numericUserId] = nil  -- ✅ Use NUMBER key
+	local target = adminDataCache[numericUserId]
+	local modifier = removedBy and adminDataCache[tonumber(removedBy.UserId)]
+
+	-- ✅ Hierarchy check for removal
+	if modifier then
+		-- Cannot remove users at same or higher level
+		if target.level >= modifier.level then
+			warn(string.format("[DataManager] 🚫 Remove blocked: Cannot remove %s (L%d) - insufficient authority", 
+				target.permission, target.level))
+			return false, string.format("Cannot remove %s - insufficient authority", target.permission)
+		end
+	end
+
+	local oldPermission = target.permission
+	adminDataCache[numericUserId] = nil
 	adminDataDirty = true
-	print(string.format("[DataManager] Admin removed: %d", numericUserId))
+
+	print(string.format("[DataManager] ✅ Admin removed: %d (%s, L%d) by %s", 
+		numericUserId, oldPermission, target.level, 
+		removedBy and removedBy.Name or "SYSTEM"))
+
 	return true
 end
 

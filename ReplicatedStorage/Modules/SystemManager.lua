@@ -50,8 +50,10 @@ function SystemManager:Init()
 		return false
 	end
 
-	-- Initialize admin logger
-	AdminLogger:Init()
+	-- Initialize admin logger (only on server)
+	if AdminLogger then
+		AdminLogger:Init()
+	end
 
 	-- Build admin cache
 	self:BuildAdminCache()
