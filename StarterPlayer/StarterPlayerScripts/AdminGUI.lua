@@ -14,9 +14,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 local SystemManager = nil
 local Config = nil
 local RemoteEvents = nil
-
--- Client-side admin cache
-local clientAdminCache = {}
+local RemoteFunctions = nil
 
 -- Load modules dengan error handling
 local function loadModules()
@@ -30,9 +28,10 @@ local function loadModules()
 			SystemManager = require(ReplicatedStorage.Modules.SystemManager)
 			Config = require(ReplicatedStorage.Config.Config)
 			RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
+			RemoteFunctions = require(ReplicatedStorage.Remotes.RemoteFunctions)
 		end)
 
-		if success and SystemManager and Config then
+		if success and SystemManager and Config and RemoteFunctions then
 			print("[AdminGUI] ✅ Modules loaded successfully")
 			return true
 		end
@@ -49,11 +48,26 @@ if not loadModules() then
 	return -- Exit if modules failed to load
 end
 
+-- Client-side admin cache
+local clientAdminCache = {}
+
 -- Listen for admin cache sync from server
 RemoteEvents.OnAdminCacheSyncReceived(function(adminCache)
-	clientAdminCache = adminCache or {}
-	print("[AdminGUI] Admin cache synced from server - " .. tostring(#clientAdminCache) .. " admins")
+	clientAdminCache = {}
+	for k, v in pairs(adminCache or {}) do
+		local numKey = tonumber(k)
+		if numKey then
+			clientAdminCache[numKey] = v
+		end
+	end
+	local count = 0
+	for _ in pairs(clientAdminCache) do count = count + 1 end
+	print("[AdminGUI] Admin cache synced from server - " .. count .. " admins")
 end)
+
+-- Request admin cache sync from server on startup
+RemoteEvents.FireAdminCacheSyncRequest()
+print("[AdminGUI] Requested admin cache sync from server")
 
 -- GUI State
 local adminData = nil

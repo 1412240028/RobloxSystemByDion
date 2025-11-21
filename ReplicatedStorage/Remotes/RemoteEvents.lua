@@ -38,6 +38,7 @@ local RemoteEvents = {
 
 	-- Admin Remote Events
 	AdminCacheSyncEvent = CheckpointEventsFolder:FindFirstChild("AdminCacheSyncEvent"), -- RemoteEvent: Server -> Client
+	AdminCacheSyncRequestEvent = CheckpointEventsFolder:FindFirstChild("AdminCacheSyncRequestEvent"), -- RemoteEvent: Client -> Server
 }
 
 -- Fallback warning if events not found
@@ -95,6 +96,10 @@ end
 
 if not RemoteEvents.AdminCacheSyncEvent then
 	warn("[RemoteEvents] AdminCacheSyncEvent not found! Admin cache sync may not work properly.")
+end
+
+if not RemoteEvents.AdminCacheSyncRequestEvent then
+	warn("[RemoteEvents] AdminCacheSyncRequestEvent not found! Admin cache sync request may not work properly.")
 end
 
 -- Helper Functions
@@ -458,6 +463,25 @@ function RemoteEvents.OnAdminCacheSyncReceived(callback)
 	end
 	assert(typeof(callback) == "function", "callback must be function")
 	return RemoteEvents.AdminCacheSyncEvent.OnClientEvent:Connect(callback)
+end
+
+-- Client: Fire admin cache sync request to server
+function RemoteEvents.FireAdminCacheSyncRequest()
+	if not RemoteEvents.AdminCacheSyncRequestEvent then
+		warn("[RemoteEvents] Cannot fire admin cache sync request - AdminCacheSyncRequestEvent not found!")
+		return
+	end
+	RemoteEvents.AdminCacheSyncRequestEvent:FireServer()
+end
+
+-- Server: Connect to admin cache sync request event
+function RemoteEvents.OnAdminCacheSyncRequestReceived(callback)
+	if not RemoteEvents.AdminCacheSyncRequestEvent then
+		warn("[RemoteEvents] Cannot connect to admin cache sync request event - AdminCacheSyncRequestEvent not found!")
+		return function() end -- Return dummy function
+	end
+	assert(typeof(callback) == "function", "callback must be function")
+	return RemoteEvents.AdminCacheSyncRequestEvent.OnServerEvent:Connect(callback)
 end
 
 return RemoteEvents

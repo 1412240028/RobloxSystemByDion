@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Config.Config)
 local SharedTypes = require(ReplicatedStorage.Modules.SharedTypes)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
+local RemoteFunctions = require(ReplicatedStorage.Remotes.RemoteFunctions)
 local ResetCheckpointsEvent = require(ReplicatedStorage.Remotes.ResetCheckpointsEvent)
 local DataManager = require(ReplicatedStorage.Modules.DataManager)
 local RaceController = require(ReplicatedStorage.Modules.RaceController)
@@ -53,6 +54,60 @@ function MainServer.Init()
 
 	-- Setup admin command handling
 	MainServer.SetupAdminCommands()
+
+	-- Setup remote function handlers
+	function MainServer.SetupRemoteFunctions()
+		print("[MainServer] Setting up Remote Function handlers...")
+
+		-- Admin System Remote Functions
+		if RemoteFunctions.GetPlayerRoleInfo then
+			RemoteFunctions.GetPlayerRoleInfo.OnServerInvoke = function(player)
+				if Config.ENABLE_ADMIN_SYSTEM and SystemManager then
+					return SystemManager:GetPlayerRoleInfo(player)
+				else
+					return {
+						permission = "NONE",
+						level = 0,
+						isAdmin = false
+					}
+				end
+			end
+			print("[MainServer] ✅ GetPlayerRoleInfo RemoteFunction handler connected")
+		else
+			warn("[MainServer] ⚠️ GetPlayerRoleInfo RemoteFunction not found!")
+		end
+
+		print("[MainServer] ✅ Remote Function handlers setup complete")
+	end
+
+	-- Setup admin cache sync request handler
+	function MainServer.SetupAdminCacheSync()
+		print("[MainServer] Setting up Admin Cache Sync handlers...")
+
+		-- Handle admin cache sync requests from clients
+		RemoteEvents.OnAdminCacheSyncRequestReceived(function(player)
+			print("[MainServer] 📡 Admin cache sync request received from:", player.Name)
+			if Config.ENABLE_ADMIN_SYSTEM and SystemManager then
+				local adminCache = SystemManager:GetAdminCache()
+				if adminCache then
+					RemoteEvents.BroadcastAdminCacheSync(adminCache)
+					print("[MainServer] 📡 Admin cache broadcasted to all clients")
+				else
+					warn("[MainServer] ⚠️ Admin cache not available for sync")
+				end
+			else
+				warn("[MainServer] ⚠️ Admin system not enabled or SystemManager not available")
+			end
+		end)
+
+		print("[MainServer] ✅ Admin Cache Sync handlers setup complete")
+	end
+
+	-- Setup remote function handlers
+	MainServer.SetupRemoteFunctions()
+
+	-- Setup admin cache sync request handler
+	MainServer.SetupAdminCacheSync()
 
 	-- Player connection handlers
 	Players.PlayerAdded:Connect(MainServer.OnPlayerAdded)

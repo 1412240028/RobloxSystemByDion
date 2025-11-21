@@ -222,6 +222,7 @@ function SystemManager:AddAdmin(addedBy, userId, permission)
 	-- ✅ Sync updated cache to all clients
 	local RemoteEvents = require(game.ReplicatedStorage.Remotes.RemoteEvents)
 	RemoteEvents.BroadcastAdminCacheSync(adminCache)
+	Log("INFO", "📡 Admin cache updated and broadcasted to all clients")
 
 	Log("INFO", "Admin added: %d (%s) by %s", numericUserId, permission, addedBy.Name)
 	return true, "Admin added successfully"
@@ -258,6 +259,11 @@ function SystemManager:GetAdminCount()
 		count = count + 1
 	end
 	return count
+end
+
+-- ✅ NEW: Get admin cache for sync purposes
+function SystemManager:GetAdminCache()
+	return adminCache
 end
 
 -- Get system status
