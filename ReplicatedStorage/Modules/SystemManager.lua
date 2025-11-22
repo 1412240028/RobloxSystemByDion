@@ -487,6 +487,14 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
 			resetCount = resetCount + 1
 		end
 		success, result = true, string.format("Reset checkpoints for %d players", resetCount)
+	elseif command == "resetall" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.ADMIN then
+		local ResetCheckpointsEvent = require(game.ReplicatedStorage.Remotes.ResetCheckpointsEvent)
+		local resetCount = 0
+		for _, p in ipairs(Players:GetPlayers()) do
+			ResetCheckpointsEvent.Event:Fire(p)
+			resetCount = resetCount + 1
+		end
+		success, result = true, string.format("Reset checkpoints for %d players", resetCount)
 	elseif command == "set_cp" and adminLevel >= Config.ADMIN_PERMISSION_LEVELS.MODERATOR then
 		if not args or #args < 2 then
 			return false, "Usage: set_cp <playerName> <checkpointId>"
@@ -595,6 +603,7 @@ GENERAL:
 CHECKPOINT COMMANDS:
   reset_cp <playerName> - Reset checkpoints for specific player
   reset_all_cp - Reset checkpoints for all players (ADMIN+)
+  resetall - Alias for reset_all_cp (ADMIN+)
   set_cp <playerName> <checkpointId> - Set player to specific checkpoint
   cp_status [playerName] - Show checkpoint status (all players if no name)
   complete_cp <playerName> <checkpointId> - Force complete checkpoint
@@ -882,7 +891,6 @@ function SystemManager:InitRateLimiting()
 			Log("WARN", "Rate limit exceeded for sprint toggle: %s", player.Name)
 			return -- Block the event
 		end
-		-- Continue with normal processing (this would be handled by MainServer)
 	end)
 
 	-- Rate limit checkpoint touch events
@@ -896,7 +904,6 @@ function SystemManager:InitRateLimiting()
 			Log("WARN", "Rate limit exceeded for checkpoint touch: %s", player.Name)
 			return -- Block the event
 		end
-		-- Continue with normal processing
 	end)
 
 	-- Rate limit race queue events

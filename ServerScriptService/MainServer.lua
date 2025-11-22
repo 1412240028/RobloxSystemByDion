@@ -57,6 +57,9 @@ function MainServer.Init()
 	-- Setup admin command handling
 	MainServer.SetupAdminCommands()
 
+	-- Setup admin command event handler
+	MainServer.SetupAdminCommandEvents()
+
 	-- Setup remote function handlers
 	function MainServer.SetupRemoteFunctions()
 		print("[MainServer] Setting up Remote Function handlers...")
@@ -1026,6 +1029,81 @@ end
 function MainServer.InitializeRaceSystem()
 	print("[MainServer] Initializing race system")
 	print("[MainServer] Race system initialized")
+end
+
+-- Setup admin command event handler
+function MainServer.SetupAdminCommandEvents()
+	print("[MainServer] Setting up Admin Command Event handlers...")
+
+	-- Handle admin commands fired from clients
+	RemoteEvents.OnAdminCommandReceived(function(player, command, args)
+		print(string.format("[MainServer] 📡 Admin command received from %s: %s", player.Name, command))
+
+		if Config.ENABLE_ADMIN_SYSTEM and SystemManager then
+			local success, result = SystemManager:ExecuteAdminCommand(player, command, args)
+
+			if success then
+				print(string.format("[MainServer] ✅ Admin command success: %s", command))
+
+				-- Send result to player
+				local messageToSend = ""
+				if typeof(result) == "string" then
+					messageToSend = result
+				elseif typeof(result) == "table" then
+					if result.message then
+						messageToSend = result.message
+					elseif result.initialized ~= nil then
+						messageToSend = string.format("Status: %s | Players: %d | Admins: %d",
+							result.initialized and "Active" or "Inactive",
+							result.playerCount or 0,
+							result.adminCount or 0)
+					elseif result.player then
+						messageToSend = string.format("%s - CP: %d | Finishes: %d",
+							result.player, result.currentCheckpoint or 0, result.finishCount or 0)
+					elseif #result > 0 then
+						local lines = {}
+						for _, item in ipairs(result) do
+							if item.name and item.cp then
+								table.insert(lines, string.format("%s: CP%d (F%d)",
+									item.name, item.cp, item.finishes or 0))
+							elseif item.name then
+								table.insert(lines, string.format("%s%s",
+									item.name, item.isAdmin and " (Admin)" or ""))
+							end
+						end
+						if #lines > 0 then
+							messageToSend = table.concat(lines, "\n")
+						else
+							messageToSend = "Command executed successfully"
+						end
+					else
+						messageToSend = "Command executed successfully"
+					end
+				else
+					messageToSend = "Command executed successfully"
+				end
+
+				-- Send via notification
+				pcall(function()
+					RemoteEvents.SendRaceNotification(player, {message = messageToSend})
+				end)
+			else
+				local errorMsg = result or "Command failed"
+				warn(string.format("[MainServer] ❌ Admin command failed: %s", errorMsg))
+
+				pcall(function()
+					RemoteEvents.SendRaceNotification(player, {message = "❌ " .. errorMsg})
+				end)
+			end
+		else
+			warn("[MainServer] ⚠️ Admin system not enabled or SystemManager not available")
+			pcall(function()
+				RemoteEvents.SendRaceNotification(player, {message = "❌ Admin system not available"})
+			end)
+		end
+	end)
+
+	print("[MainServer] ✅ Admin Command Event handlers setup complete")
 end
 
 -- Setup admin command handling

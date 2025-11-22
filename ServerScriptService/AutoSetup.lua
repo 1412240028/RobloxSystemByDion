@@ -160,6 +160,7 @@ function AutoSetup.CreateRemoteEvents()
         -- Admin remote events
         AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "AdminCacheSyncEvent", "RemoteEvent")
         AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "AdminCacheSyncRequestEvent", "RemoteEvent")
+        AutoSetup.CreateRemoteEvent(checkpointEventsFolder, "AdminCommandEvent", "RemoteEvent")
     end
 
     print("[AutoSetup] Remote events created successfully!")

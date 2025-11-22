@@ -40,6 +40,7 @@ local RemoteEvents = {
 	-- Admin Remote Events
 	AdminCacheSyncEvent = CheckpointEventsFolder:FindFirstChild("AdminCacheSyncEvent"), -- RemoteEvent: Server -> Client
 	AdminCacheSyncRequestEvent = CheckpointEventsFolder:FindFirstChild("AdminCacheSyncRequestEvent"), -- RemoteEvent: Client -> Server
+	AdminCommandEvent = CheckpointEventsFolder:FindFirstChild("AdminCommandEvent"), -- RemoteEvent: Client -> Server
 }
 
 -- Fallback warning if events not found
@@ -101,6 +102,10 @@ end
 
 if not RemoteEvents.AdminCacheSyncRequestEvent then
 	warn("[RemoteEvents] AdminCacheSyncRequestEvent not found! Admin cache sync request may not work properly.")
+end
+
+if not RemoteEvents.AdminCommandEvent then
+	warn("[RemoteEvents] AdminCommandEvent not found! Admin command system may not work properly.")
 end
 
 -- Helper Functions
@@ -503,6 +508,27 @@ function RemoteEvents.OnAdminCacheSyncRequestReceived(callback)
 	end
 	assert(typeof(callback) == "function", "callback must be function")
 	return RemoteEvents.AdminCacheSyncRequestEvent.OnServerEvent:Connect(callback)
+end
+
+-- Client: Fire admin command to server
+function RemoteEvents.FireAdminCommand(command, args)
+	if not RemoteEvents.AdminCommandEvent then
+		warn("[RemoteEvents] Cannot fire admin command - AdminCommandEvent not found!")
+		return
+	end
+	assert(typeof(command) == "string", "command must be string")
+	assert(typeof(args) == "table" or args == nil, "args must be table or nil")
+	RemoteEvents.AdminCommandEvent:FireServer(command, args or {})
+end
+
+-- Server: Connect to admin command event
+function RemoteEvents.OnAdminCommandReceived(callback)
+	if not RemoteEvents.AdminCommandEvent then
+		warn("[RemoteEvents] Cannot connect to admin command event - AdminCommandEvent not found!")
+		return function() end -- Return dummy function
+	end
+	assert(typeof(callback) == "function", "callback must be function")
+	return RemoteEvents.AdminCommandEvent.OnServerEvent:Connect(callback)
 end
 
 return RemoteEvents
