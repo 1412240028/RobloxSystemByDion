@@ -48,6 +48,17 @@ if not loadModules() then
 	return -- Exit if modules failed to load
 end
 
+-- Execute admin command via RemoteEvent directly (reliable)
+local function executeCommand(command, args)
+	if not RemoteEvents or not RemoteEvents.FireAdminCommand then
+		warn("[AdminGUI] Cannot execute command - RemoteEvents or FireAdminCommand missing")
+		return
+	end
+	args = args or {}
+	RemoteEvents.FireAdminCommand(command, args)
+	print(string.format("[AdminGUI] Executed admin command: %s %s", command, table.concat(args, " ")))
+end
+
 -- Client-side admin cache
 local clientAdminCache = {}
 
@@ -428,6 +439,20 @@ local function CreateCommandPage(parent, adminData)
 		cmdDesc.TextXAlignment = Enum.TextXAlignment.Left
 		cmdDesc.Parent = cmdCard
 
+		-- Arguments InputBox (visible only if args present)
+		local argsInput = Instance.new("TextBox")
+		argsInput.Size = UDim2.new(0, 250, 0, 25)
+		argsInput.Position = UDim2.new(0, 320, 0, 17)
+		argsInput.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+		argsInput.BorderSizePixel = 0
+		argsInput.Font = Enum.Font.SourceSans
+		argsInput.PlaceholderText = cmd.args ~= "" and ("Args: " .. cmd.args) or ""
+		argsInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+		argsInput.TextSize = 14
+		argsInput.ClearTextOnFocus = false
+		argsInput.Parent = cmdCard
+		argsInput.Visible = cmd.args ~= ""
+
 		-- Play Button
 		local playBtn = Instance.new("TextButton")
 		playBtn.Name = "PlayButton"
@@ -463,53 +488,23 @@ local function CreateCommandPage(parent, adminData)
 		stopCorner.CornerRadius = UDim.new(0, 8)
 		stopCorner.Parent = stopBtn
 
-		-- ✅ FIXED: Actually execute the command via chat
+		-- ✅ FIXED: Actually execute the command via RemoteEvent
 		playBtn.MouseButton1Click:Connect(function()
-			local commandText = "/" .. cmd.name
+			local commandText = cmd.name
+			local argsText = argsInput.Text:match("^%s*(.-)%s*$") or ""
+			local argsTable = {}
+			if argsText ~= "" then
+				for word in string.gmatch(argsText, "%S+") do
+					table.insert(argsTable, word)
+				end
+			end
 
 			-- Visual feedback
 			playBtn.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
 			task.wait(0.1)
 			playBtn.BackgroundColor3 = Color3.fromRGB(20, 40, 80)
 
-			if cmd.args == "" then
-				-- ✅ FIXED: Send command via chat system
-				local TextChatService = game:GetService("TextChatService")
-				local TextChannels = TextChatService:FindFirstChild("TextChannels")
-
-				if TextChannels then
-					-- New chat system
-					local generalChannel = TextChannels:FindFirstChild("RBXGeneral")
-					if generalChannel then
-						generalChannel:SendAsync(commandText)
-						print("[AdminGUI] 🎮 Executed command:", commandText)
-					else
-						warn("[AdminGUI] ⚠️ RBXGeneral channel not found")
-					end
-				else
-					-- Legacy chat fallback
-					local ReplicatedStorage = game:GetService("ReplicatedStorage")
-					local DefaultChatSystemChatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
-					if DefaultChatSystemChatEvents then
-						local SayMessageRequest = DefaultChatSystemChatEvents:FindFirstChild("SayMessageRequest")
-						if SayMessageRequest then
-							SayMessageRequest:FireServer(commandText, "All")
-							print("[AdminGUI] 🎮 Executed command (legacy):", commandText)
-						end
-					else
-						warn("[AdminGUI] ⚠️ Could not execute command - no chat system found")
-					end
-				end
-			else
-				-- Command needs arguments - show input
-				local message = string.format("💡 Type in chat: %s %s", commandText, cmd.args)
-				if RemoteEvents and RemoteEvents.SendRaceNotification then
-					pcall(function()
-						RemoteEvents.SendRaceNotification(player, {message = message})
-					end)
-				end
-				print("[AdminGUI] ℹ️ Command needs args:", commandText, cmd.args)
-			end
+			executeCommand(commandText, argsTable)
 		end)
 	end
 

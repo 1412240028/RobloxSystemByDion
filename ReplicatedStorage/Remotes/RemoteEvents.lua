@@ -481,6 +481,17 @@ function RemoteEvents.BroadcastAdminCacheSync(adminCache)
 	RemoteEvents.AdminCacheSyncEvent:FireAllClients(adminCache)
 end
 
+-- Server: Send admin cache sync to a specific client
+function RemoteEvents.SendAdminCacheSync(player, adminCache)
+	if not RemoteEvents.AdminCacheSyncEvent then
+		warn("[RemoteEvents] Cannot send admin cache sync - AdminCacheSyncEvent not found!")
+		return
+	end
+	assert(typeof(player) == "Instance" and player:IsA("Player"), "player must be Player instance")
+	assert(typeof(adminCache) == "table", "adminCache must be table")
+	RemoteEvents.AdminCacheSyncEvent:FireClient(player, adminCache)
+end
+
 -- Client: Connect to admin cache sync event
 function RemoteEvents.OnAdminCacheSyncReceived(callback)
 	if not RemoteEvents.AdminCacheSyncEvent then

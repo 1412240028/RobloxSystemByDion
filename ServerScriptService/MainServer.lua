@@ -104,28 +104,35 @@ function MainServer.Init()
 		print("[MainServer] ✅ Remote Function handlers setup complete")
 	end
 
-	-- Setup admin cache sync request handler
-	function MainServer.SetupAdminCacheSync()
-		print("[MainServer] Setting up Admin Cache Sync handlers...")
+-- Setup admin cache sync request handler
+function MainServer.SetupAdminCacheSync()
+	print("[MainServer] Setting up Admin Cache Sync handlers...")
 
-		-- Handle admin cache sync requests from clients
-		RemoteEvents.OnAdminCacheSyncRequestReceived(function(player)
-			print("[MainServer] 📡 Admin cache sync request received from:", player.Name)
-			if Config.ENABLE_ADMIN_SYSTEM and SystemManager then
-				local adminCache = SystemManager:GetAdminCache()
-				if adminCache then
-					RemoteEvents.BroadcastAdminCacheSync(adminCache)
-					print("[MainServer] 📡 Admin cache broadcasted to all clients")
-				else
-					warn("[MainServer] ⚠️ Admin cache not available for sync")
+	-- Handle admin cache sync requests from clients
+	RemoteEvents.OnAdminCacheSyncRequestReceived(function(player)
+		print("[MainServer] 📡 Admin cache sync request received from:", player.Name)
+		if Config.ENABLE_ADMIN_SYSTEM and SystemManager then
+			local adminCache = SystemManager:GetAdminCache()
+			if adminCache then
+				-- Filter adminCache to only send recognized admins, exclude MEMBER (optional)
+				local filteredCache = {}
+				for userId, data in pairs(adminCache) do
+					-- Send all, including MEMBER, as client uses permission string
+					filteredCache[userId] = data
 				end
-			else
-				warn("[MainServer] ⚠️ Admin system not enabled or SystemManager not available")
-			end
-		end)
 
-		print("[MainServer] ✅ Admin Cache Sync handlers setup complete")
-	end
+				RemoteEvents.SendAdminCacheSync(player, filteredCache) -- Changed from Broadcast to per-client send
+				print("[MainServer] 📡 Admin cache sent to client " .. player.Name)
+			else
+				warn("[MainServer] ⚠️ Admin cache not available for sync")
+			end
+		else
+			warn("[MainServer] ⚠️ Admin system not enabled or SystemManager not available")
+		end
+	end)
+
+	print("[MainServer] ✅ Admin Cache Sync handlers setup complete")
+end
 
 	-- Setup remote function handlers
 	MainServer.SetupRemoteFunctions()
@@ -851,7 +858,7 @@ function MainServer.ResetPlayerCheckpoints(player)
 		end
 
 		-- ✅ NEW: Auto teleport to spawn location (checkpoint 0)
-		local spawnPosition = Vector3.new(0, 0, 0) -- Default spawn location
+		local spawnPosition = Vector3.new(-482, -18, 0) -- Default spawn location
 		if playerData.character and playerData.character:FindFirstChild("HumanoidRootPart") then
 			local hrp = playerData.character.HumanoidRootPart
 			hrp.CFrame = CFrame.new(spawnPosition)
