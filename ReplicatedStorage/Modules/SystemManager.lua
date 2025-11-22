@@ -4,8 +4,29 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Config = require(ReplicatedStorage.Config.Config)
-local AdminConfig = require(game.ServerScriptService.AdminConfig) -- ✅ FIXED: Use server-only AdminConfig
+
+-- ✅ FIXED: Check if server before requiring AdminConfig
+local AdminConfig = nil
+local isServer = RunService:IsServer()
+
+if isServer then
+    AdminConfig = require(game.ServerScriptService.AdminConfig)
+else
+    -- Client-side: use minimal config for permission levels
+    AdminConfig = {
+        ADMIN_PERMISSION_LEVELS = {
+            OWNER = 5,
+            DEVELOPER = 4,
+            MODERATOR = 3,
+            HELPER = 2,
+            MEMBER = 1,
+            TESTER = 1
+        }
+    }
+end
+
 local AdminLogger = require(ReplicatedStorage.Modules.AdminLogger)
 
 local SystemManager = {}

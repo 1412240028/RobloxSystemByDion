@@ -133,6 +133,7 @@ function AutoSetup.CreateRemoteEvents()
         AutoSetup.CreateRemoteEvent(sprintEventsFolder, "SprintToggleEvent", "RemoteEvent")
         AutoSetup.CreateRemoteEvent(sprintEventsFolder, "SprintSyncEvent", "RemoteEvent")
         AutoSetup.CreateRemoteEvent(sprintEventsFolder, "SprintSyncRequestEvent", "RemoteEvent")
+        AutoSetup.CreateRemoteEvent(sprintEventsFolder, "SprintSyncAckEvent", "RemoteEvent")
     end
 
     -- Checkpoint remote events

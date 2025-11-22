@@ -1163,7 +1163,7 @@ function MainServer.Cleanup()
 	-- ✅ FIXED: Disconnect all checkpoint connections
 	for checkpointId, connections in pairs(checkpointConnections) do
 		for _, connection in ipairs(connections) do
-			if connection and connection.Connected then
+			if connection and typeof(connection) == "RBXScriptConnection" and connection.Connected then
 				connection:Disconnect()
 			end
 		end
@@ -1173,7 +1173,7 @@ function MainServer.Cleanup()
 	-- ✅ FIXED: Disconnect all character connections
 	for character, connections in pairs(characterConnections) do
 		for _, connection in ipairs(connections) do
-			if connection and connection.Connected then
+			if connection and typeof(connection) == "RBXScriptConnection" and connection.Connected then
 				connection:Disconnect()
 			end
 		end
@@ -1183,7 +1183,7 @@ function MainServer.Cleanup()
 	-- ✅ FIXED: Disconnect all player connections
 	for player, connections in pairs(playerConnections) do
 		for _, connection in ipairs(connections) do
-			if connection and connection.Connected then
+			if connection and typeof(connection) == "RBXScriptConnection" and connection.Connected then
 				connection:Disconnect()
 			end
 		end

@@ -463,39 +463,52 @@ local function CreateCommandPage(parent, adminData)
 		stopCorner.CornerRadius = UDim.new(0, 8)
 		stopCorner.Parent = stopBtn
 
-		-- Play Button functionality
+		-- ✅ FIXED: Actually execute the command via chat
 		playBtn.MouseButton1Click:Connect(function()
-			-- ✅ KOMPATIBEL: Gunakan chat command via MainServer.lua
 			local commandText = "/" .. cmd.name
 
-			-- Untuk command tanpa args, langsung execute
+			-- Visual feedback
+			playBtn.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
+			task.wait(0.1)
+			playBtn.BackgroundColor3 = Color3.fromRGB(20, 40, 80)
+
 			if cmd.args == "" then
-				-- Kirim via chat untuk diproses MainServer.lua:SetupAdminCommands()
-				player:GetMouse().KeyDown:Connect(function(key)
-					-- Placeholder - sebenarnya command dikirim via Chatted event
-				end)
+				-- ✅ FIXED: Send command via chat system
+				local TextChatService = game:GetService("TextChatService")
+				local TextChannels = TextChatService:FindFirstChild("TextChannels")
 
-				-- ALTERNATIF: Kirim notifikasi ke player untuk ketik command
-				if RemoteEvents and RemoteEvents.SendRaceNotification then
-					pcall(function()
-						-- Simulate command execution
-						local message = string.format("💡 Type in chat: %s", commandText)
-						RemoteEvents.SendRaceNotification(player, {message = message})
-					end)
+				if TextChannels then
+					-- New chat system
+					local generalChannel = TextChannels:FindFirstChild("RBXGeneral")
+					if generalChannel then
+						generalChannel:SendAsync(commandText)
+						print("[AdminGUI] 🎮 Executed command:", commandText)
+					else
+						warn("[AdminGUI] ⚠️ RBXGeneral channel not found")
+					end
+				else
+					-- Legacy chat fallback
+					local ReplicatedStorage = game:GetService("ReplicatedStorage")
+					local DefaultChatSystemChatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+					if DefaultChatSystemChatEvents then
+						local SayMessageRequest = DefaultChatSystemChatEvents:FindFirstChild("SayMessageRequest")
+						if SayMessageRequest then
+							SayMessageRequest:FireServer(commandText, "All")
+							print("[AdminGUI] 🎮 Executed command (legacy):", commandText)
+						end
+					else
+						warn("[AdminGUI] ⚠️ Could not execute command - no chat system found")
+					end
 				end
-
-				-- Visual feedback
-				playBtn.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
-				wait(0.3)
-				playBtn.BackgroundColor3 = Color3.fromRGB(20, 40, 80)
 			else
-				-- Command needs args - show input prompt
+				-- Command needs arguments - show input
+				local message = string.format("💡 Type in chat: %s %s", commandText, cmd.args)
 				if RemoteEvents and RemoteEvents.SendRaceNotification then
 					pcall(function()
-						local message = string.format("💡 Type: %s %s", commandText, cmd.args)
 						RemoteEvents.SendRaceNotification(player, {message = message})
 					end)
 				end
+				print("[AdminGUI] ℹ️ Command needs args:", commandText, cmd.args)
 			end
 		end)
 	end
