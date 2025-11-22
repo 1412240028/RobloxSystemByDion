@@ -17,4 +17,12 @@ if not RemoteFunctions.GetPlayerRoleInfo then
     print("[RemoteFunctions] Created missing RemoteFunction: GetPlayerRoleInfo")
 end
 
+if not RemoteFunctions.GetSystemStatus then
+    warn("[RemoteFunctions] GetSystemStatus not found! Creating it dynamically...")
+    RemoteFunctions.GetSystemStatus = Instance.new("RemoteFunction")
+    RemoteFunctions.GetSystemStatus.Name = "GetSystemStatus"
+    RemoteFunctions.GetSystemStatus.Parent = ReplicatedStorage
+    print("[RemoteFunctions] Created missing RemoteFunction: GetSystemStatus")
+end
+
 return RemoteFunctions

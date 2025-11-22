@@ -79,6 +79,25 @@ function MainServer.Init()
 			warn("[MainServer] ⚠️ GetPlayerRoleInfo RemoteFunction not found!")
 		end
 
+		if RemoteFunctions.GetSystemStatus then
+			RemoteFunctions.GetSystemStatus.OnServerInvoke = function(player)
+				if Config.ENABLE_ADMIN_SYSTEM and SystemManager then
+					return SystemManager:GetSystemStatus()
+				else
+					return {
+						playerCount = #Players:GetPlayers(),
+						adminCount = 0,
+						checkpointSystem = false,
+						sprintSystem = false,
+						raceSystem = false
+					}
+				end
+			end
+			print("[MainServer] ✅ GetSystemStatus RemoteFunction handler connected")
+		else
+			warn("[MainServer] ⚠️ GetSystemStatus RemoteFunction not found!")
+		end
+
 		print("[MainServer] ✅ Remote Function handlers setup complete")
 	end
 

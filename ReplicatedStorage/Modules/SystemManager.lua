@@ -300,11 +300,12 @@ function SystemManager:GetSystemStatus()
 	end
 
 	return {
-		initialized = systemStatus.initialized,
-		checkpointSystemActive = systemStatus.checkpointSystemActive,
-		sprintSystemActive = systemStatus.sprintSystemActive,
 		playerCount = systemStatus.playerCount,
-		adminCount = adminCount, -- ✅ FIXED: Use calculated count
+		adminCount = adminCount,
+		checkpointSystem = systemStatus.checkpointSystemActive,
+		sprintSystem = systemStatus.sprintSystemActive,
+		raceSystem = Config.ENABLE_RACE_SYSTEM or false,
+		initialized = systemStatus.initialized,
 		lastUpdate = systemStatus.lastUpdate,
 		version = Config.VERSION,
 		debugMode = Config.DEBUG_MODE
