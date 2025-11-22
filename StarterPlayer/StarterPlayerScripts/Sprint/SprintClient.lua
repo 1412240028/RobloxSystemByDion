@@ -185,7 +185,7 @@ function SprintClient.RequestToggle()
 	lastRequestTime = tick()
 end
 
--- ✅ IMPROVED: Handle server sync
+-- ✅ IMPROVED: Handle server sync with ACK support
 function SprintClient.OnSyncReceived(syncData)
 	-- Clear waiting flag
 	if isWaitingForSync then
@@ -202,6 +202,14 @@ function SprintClient.OnSyncReceived(syncData)
 	-- Update GUI
 	if sprintGUI then
 		sprintGUI.UpdateVisualState(syncData.isSprinting)
+	end
+
+	-- Send ACK if required
+	if syncData.ackRequired and syncData.timestamp then
+		RemoteEvents.FireSyncAck({
+			timestamp = syncData.timestamp
+		})
+		print("[SprintClient] 📡 ACK sent for sync")
 	end
 
 	-- Log state changes for debugging

@@ -23,12 +23,14 @@ local activePlayers = {}
 local heartbeatConnection = nil
 local Checkpoints = workspace:WaitForChild("Checkpoints")
 local playerTouchedCheckpoints = {}
+local globalTouchedCheckpoints = {} -- ✅ FIXED: Global checkpoint state for colors
 local checkpointDebounce = {}
 local playerConnections = {} -- {player = {characterDied = connection, characterAdded = connection}}
 local checkpointConnections = {} -- {checkpointId = {touchConnection = connection}}
 local characterConnections = {} -- {character = {diedConnection = connection}} -- Track per character
 local autoSaveConnection = nil
 local lastAutoSaveTime = 0
+local playerDataReady = {} -- ✅ NEW: Track when player data has finished loading
 
 -- ✨ Checkpoint color configurations
 local CHECKPOINT_COLORS = {
@@ -257,28 +259,35 @@ function MainServer.OnPlayerAdded(player)
 	-- Load player data from DataStore
 	DataManager.LoadPlayerData(player)
 
-	-- ✅ Restore touched checkpoints from persistent data
+	-- ✅ Restore touched checkpoints from persistent data (GLOBAL STATE)
 	local restoredCount = 0
 	if playerData.touchedCheckpoints and type(playerData.touchedCheckpoints) == "table" then
 		for checkpointId, touched in pairs(playerData.touchedCheckpoints) do
 			if touched then
 				playerTouchedCheckpoints[userId][checkpointId] = true
-				MainServer.UpdateCheckpointColor(checkpointId, true, player)
-				restoredCount = restoredCount + 1
+				-- ✅ Update global state if not already set
+				if not globalTouchedCheckpoints[checkpointId] then
+					globalTouchedCheckpoints[checkpointId] = true
+					MainServer.UpdateCheckpointColor(checkpointId, true, player)
+					restoredCount = restoredCount + 1
+				end
 			end
 		end
 	end
 
 	if restoredCount > 0 then
-		print(string.format("[MainServer] ✓ Restored %d touched checkpoints for %s", restoredCount, player.Name))
+		print(string.format("[MainServer] ✓ Restored %d new touched checkpoints globally", restoredCount))
 	else
-		print(string.format("[MainServer] ✓ No touched checkpoints to restore for %s", player.Name))
+		print(string.format("[MainServer] ✓ No new touched checkpoints to restore for %s", player.Name))
 	end
 
 	-- Only save if data was modified during load
 	if DataManager.IsDirty and DataManager.IsDirty(player) then
 		DataManager.SavePlayerData(player)
 	end
+
+	-- ✅ NEW: Mark player data as ready after loading
+	playerDataReady[player] = true
 
 	-- ✅ Update leaderstats from saved data
 	local savedCheckpoint = playerData.currentCheckpoint
@@ -458,12 +467,39 @@ function MainServer.OnSprintSyncRequest(player)
 	-- ✅ Apply speed on server first
 	playerData.humanoid.WalkSpeed = targetSpeed
 
-	-- ✅ Then send sync
-	RemoteEvents.SendSync(player, {
+	-- ✅ FIXED: ACK-based sync for toggle requests too
+	local syncData = {
 		isSprinting = playerData.isSprinting,
 		currentSpeed = targetSpeed,
-		timestamp = tick()
-	})
+		timestamp = tick(),
+		ackRequired = true
+	}
+
+	-- Send sync
+	RemoteEvents.SendSync(player, syncData)
+
+	-- Set up ACK timeout handler
+	local ackReceived = false
+	local ackConnection = RemoteEvents.OnSyncAckReceived(function(ackPlayer, ackData)
+		if ackPlayer == player and ackData.timestamp == syncData.timestamp then
+			ackReceived = true
+			if ackConnection then
+				ackConnection:Disconnect()
+				ackConnection = nil
+			end
+		end
+	end)
+
+	-- Resend if no ACK after 1 second
+	task.delay(1, function()
+		if not ackReceived and player and player.Parent and activePlayers[player] then
+			syncData.timestamp = tick()
+			RemoteEvents.SendSync(player, syncData)
+		end
+		if ackConnection then
+			ackConnection:Disconnect()
+		end
+	end)
 
 	print(string.format("[MainServer] 🔄 Sync sent to %s (state: %s, speed: %d)",
 		player.Name, playerData.isSprinting and "ON" or "OFF", targetSpeed))
@@ -541,6 +577,12 @@ function MainServer.ValidateCheckpointTouch(player, checkpointPart, checkpointId
 	local playerData = activePlayers[player]
 	if not playerData then
 		result.reason = "Player data not found"
+		return result
+	end
+
+	-- ✅ NEW: Check if player data has finished loading
+	if not playerDataReady[player] then
+		result.reason = "Player data not ready"
 		return result
 	end
 
@@ -695,6 +737,8 @@ function MainServer.OnCheckpointTouched(player, checkpointPart, checkpointModel)
 	end
 	playerTouchedCheckpoints[userId][checkpointId] = true
 
+	-- ✅ Update global state for checkpoint colors
+	globalTouchedCheckpoints[checkpointId] = true
 	MainServer.UpdateCheckpointColor(checkpointId, true, player)
 
 	local spawnPosition = checkpointPart.Position + Config.CHECKPOINT_SPAWN_OFFSET
@@ -756,6 +800,7 @@ function MainServer.ResetPlayerCheckpoints(player)
 
 	-- ✅ Change all touched checkpoints back to RED
 	for _, checkpointId in ipairs(touchedCheckpoints) do
+		globalTouchedCheckpoints[checkpointId] = nil
 		MainServer.UpdateCheckpointColor(checkpointId, false, player)
 		print(string.format("[MainServer]   → Checkpoint %d: 🔴 RED", checkpointId))
 	end

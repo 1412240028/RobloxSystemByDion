@@ -12,6 +12,7 @@ local RaceController = {}
 
 -- Private variables
 local raceActive = false
+local startingRace = false -- ✅ FIXED: Atomic lock to prevent concurrent race starts
 local raceStartTime = 0
 local raceParticipants = {} -- player -> race data
 local raceCooldownEnd = 0
@@ -38,6 +39,12 @@ end
 
 -- Start a race
 function RaceController.StartRace()
+	-- ✅ FIXED: Atomic lock to prevent concurrent race starts
+	if startingRace then
+		warn("[RaceController] Race start already in progress")
+		return false
+	end
+
 	if raceActive then
 		warn("[RaceController] Race already active")
 		return false
@@ -57,6 +64,9 @@ function RaceController.StartRace()
 		warn(string.format("[RaceController] Not enough players for race: %d/%d", playerCount, Config.MIN_PLAYERS_FOR_RACE))
 		return false
 	end
+
+	-- Set atomic lock
+	startingRace = true
 
 	-- Start race
 	raceActive = true
@@ -95,6 +105,9 @@ function RaceController.StartRace()
 	-- Update stats
 	raceStats.totalRaces = raceStats.totalRaces + 1
 	raceStats.lastRaceTime = tick()
+
+	-- Release atomic lock
+	startingRace = false
 
 	print(string.format("[RaceController] Race started with %d participants", participantCount))
 	return true
@@ -297,24 +310,35 @@ end
 function RaceController.CalculateSkillLevel(player)
 	local playerData = DataManager.GetPlayerData(player)
 	if not playerData then
-		return 1000 -- Default skill level
+		-- ✅ FIXED: Random starting skill for new players (800-1200)
+		return 800 + math.random() * 400
 	end
 
 	local bestTime = playerData.bestTime
 	local totalRaces = playerData.totalRaces or 0
+	local totalWins = playerData.totalWins or 0
 
 	if not bestTime or totalRaces < 3 then
-		return 1000 -- New or inexperienced player
+		-- ✅ FIXED: Random starting skill for inexperienced players
+		return 800 + math.random() * 400
 	end
 
 	-- Skill level based on best time (lower time = higher skill)
 	-- Assuming typical race times are 30-120 seconds
 	local skillLevel = math.max(100, math.min(2000, 2000 - (bestTime * 10)))
 
-	-- Adjust for experience
-	skillLevel = skillLevel + (totalRaces * 5)
+	-- ✅ FIXED: Experience penalty (reduce skill for too many races without wins)
+	skillLevel = skillLevel - (totalRaces * 2)
 
-	return skillLevel
+	-- ✅ FIXED: Win rate bonus (reward consistent winners)
+	local winRate = totalRaces > 0 and (totalWins / totalRaces) or 0
+	if winRate > 0.5 then
+		skillLevel = skillLevel + (winRate * 200) -- Up to +100 bonus for 50%+ win rate
+	elseif winRate < 0.2 then
+		skillLevel = skillLevel - 50 -- Penalty for very low win rate
+	end
+
+	return math.max(100, math.min(2000, skillLevel)) -- Clamp between 100-2000
 end
 
 -- Leave race queue

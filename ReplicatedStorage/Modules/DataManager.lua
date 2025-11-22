@@ -7,6 +7,7 @@ local Players = game:GetService("Players")
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Config.Config)
+local AdminConfig = require(game.ServerScriptService.AdminConfig) -- ✅ Use server-only AdminConfig
 
 local DataManager = {}
 
@@ -433,83 +434,7 @@ function DataManager.GetQueueMetrics(player)
 	return queueMetrics[player] or {size = 0, processed = 0, errors = 0}
 end
 
--- Load player data from DataStore
--- Load admin data from DataStore
-function DataManager.LoadAdminData()
-	print("[DataManager] Loading admin data from DataStore...")
 
-	local success, loadedData = pcall(function()
-		return adminDataStore:GetAsync("AdminData")
-	end)
-
-	if success and loadedData and type(loadedData) == "table" then
-		-- ✅ CRITICAL FIX: Convert all STRING keys to NUMBER keys
-		adminDataCache = {}
-
-		for userId, adminData in pairs(loadedData) do
-			local numericUserId = tonumber(userId)  -- ✅ Convert to NUMBER
-
-			if numericUserId then
-				adminDataCache[numericUserId] = adminData  -- ✅ Store with NUMBER key
-			else
-				warn(string.format("[DataManager] ⚠️ Invalid UserID in DataStore: %s (not a number)", tostring(userId)))
-			end
-		end
-
-		-- Count admins
-		local adminCount = 0
-		for _ in pairs(adminDataCache) do
-			adminCount = adminCount + 1
-		end
-
-		print(string.format("[DataManager] ✅ Admin data loaded successfully (%d admins)", adminCount))
-
-		-- Log loaded admins for debugging
-		if Config.DEBUG_MODE then
-			print("[DataManager] Loaded admins:")
-			for userId, adminData in pairs(adminDataCache) do
-				print(string.format("  - UserID %d (type: %s): %s (Level %d)", 
-					userId, type(userId), adminData.permission, adminData.level))
-			end
-		end
-
-		return true, adminCount
-	else
-		-- No saved data found - use default admin data from config
-		warn("[DataManager] ⚠️ No admin data found in DataStore, using defaults from Config")
-		adminDataCache = {}
-
-		-- Check if Config has ADMIN_UIDS
-		if Config.ADMIN_UIDS and type(Config.ADMIN_UIDS) == "table" then
-			for userId, permission in pairs(Config.ADMIN_UIDS) do
-				local numericUserId = tonumber(userId)  -- ✅ Convert to NUMBER
-
-				if numericUserId then
-					adminDataCache[numericUserId] = {  -- ✅ Store with NUMBER key
-						permission = permission,
-						level = Config.ADMIN_PERMISSION_LEVELS[permission] or 1,
-						addedBy = "SYSTEM",
-						addedAt = tick(),
-						lastActive = tick()
-					}
-					print(string.format("[DataManager] Default admin added: %d (%s)", numericUserId, permission))
-				end
-			end
-		else
-			warn("[DataManager] ⚠️ Config.ADMIN_UIDS not found or empty!")
-		end
-
-		-- Save defaults to DataStore
-		local saveSuccess = DataManager.SaveAdminData()
-		if saveSuccess then
-			print("[DataManager] ✅ Default admin data saved to DataStore")
-		else
-			warn("[DataManager] ❌ Failed to save default admin data")
-		end
-
-		return false, 0
-	end
-end
 
 -- Cleanup player data
 function DataManager.CleanupPlayerData(player)
@@ -710,20 +635,21 @@ function DataManager.LoadAdminData()
 		warn("[DataManager] ⚠️ No admin data found in DataStore, using defaults from Config")
 		adminDataCache = {}
 
-		-- Check if Config has ADMIN_UIDS
-		if Config.ADMIN_UIDS and type(Config.ADMIN_UIDS) == "table" then
-			for userId, permission in pairs(Config.ADMIN_UIDS) do
-				adminDataCache[userId] = {
+		-- Check if AdminConfig has ADMIN_UIDS (server-only)
+		if AdminConfig.ADMIN_UIDS and type(AdminConfig.ADMIN_UIDS) == "table" then
+			for userId, permission in pairs(AdminConfig.ADMIN_UIDS) do
+				local numericUserId = tonumber(userId)  -- ✅ Convert to NUMBER
+				adminDataCache[numericUserId] = {  -- ✅ Store with NUMBER key
 					permission = permission,
 					level = Config.ADMIN_PERMISSION_LEVELS[permission] or 1,
 					addedBy = "SYSTEM",
 					addedAt = tick(),
 					lastActive = tick()
 				}
-				print(string.format("[DataManager] Default admin added: %d (%s)", userId, permission))
+				print(string.format("[DataManager] Default admin added: %d (%s)", numericUserId, permission))
 			end
 		else
-			warn("[DataManager] ⚠️ Config.ADMIN_UIDS not found or empty!")
+			warn("[DataManager] ⚠️ AdminConfig.ADMIN_UIDS not found or empty!")
 		end
 
 		-- Save defaults to DataStore

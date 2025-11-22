@@ -5,6 +5,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Config.Config)
+local AdminConfig = require(game.ServerScriptService.AdminConfig) -- ✅ FIXED: Use server-only AdminConfig
 local AdminLogger = require(ReplicatedStorage.Modules.AdminLogger)
 
 local SystemManager = {}
@@ -14,6 +15,7 @@ local adminCache = {}
 local cacheReady = false
 local commandCooldowns = {} -- {userId = {command = lastUsedTime}}
 local remoteEventRateLimits = {} -- {userId = {eventName = {count, lastReset}}}
+local assigningMemberRole = {} -- {userId = true} - Mutex to prevent recursion
 local systemStatus = {
 	initialized = false,
 	checkpointSystemActive = false,
@@ -246,7 +248,6 @@ function SystemManager:RemoveAdmin(removedBy, userId)
 
 	local oldPermission = adminCache[numericUserId].permission
 	adminCache[numericUserId] = nil  -- ✅ Use NUMBER key
-	Config.ADMIN_UIDS[numericUserId] = nil
 
 	Log("INFO", "Admin removed: %d (%s) by %s", numericUserId, oldPermission, removedBy.Name)
 	return true, "Admin removed successfully"
@@ -747,10 +748,18 @@ function SystemManager:AssignMemberRole(player)
 	local userId = player.UserId
 	local numericUserId = tonumber(userId)  -- ✅ Ensure NUMBER type
 
+	-- ✅ CRITICAL FIX: Mutex to prevent infinite recursion
+	if assigningMemberRole[userId] then
+		warn(string.format("[SystemManager] ⚠️ AssignMemberRole already running for %s - skipping", player.Name))
+		return
+	end
+	assigningMemberRole[userId] = true
+
 	-- Triple-check before assigning
 	if adminCache[numericUserId] then  -- ✅ Use NUMBER key
-		warn(string.format("[SystemManager] ⚠️ AssignMemberRole blocked - %s already has role: %s", 
+		warn(string.format("[SystemManager] ⚠️ AssignMemberRole blocked - %s already has role: %s",
 			player.Name, adminCache[numericUserId].permission))
+		assigningMemberRole[userId] = nil
 		return
 	end
 
@@ -767,6 +776,7 @@ function SystemManager:AssignMemberRole(player)
 			level = dmAdminData.level,
 			lastActive = tick()
 		}
+		assigningMemberRole[userId] = nil
 		return
 	end
 
@@ -785,9 +795,12 @@ function SystemManager:AssignMemberRole(player)
 	if success then
 		print(string.format("[SystemManager] ✅ Auto-assigned MEMBER role to %s (UserID: %d)", player.Name, userId))
 	else
-		warn(string.format("[SystemManager] ⚠️ MEMBER assignment failed for %s: %s", 
+		warn(string.format("[SystemManager] ⚠️ MEMBER assignment failed for %s: %s",
 			player.Name, errorMsg or "unknown error"))
 	end
+
+	-- ✅ Clear mutex
+	assigningMemberRole[userId] = nil
 end
 
 -- Get player's current role info

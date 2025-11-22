@@ -16,6 +16,7 @@ local RemoteEvents = {
 	SprintToggleEvent = SprintEventsFolder:FindFirstChild("SprintToggleEvent"), -- RemoteEvent: Client -> Server
 	SprintSyncEvent = SprintEventsFolder:FindFirstChild("SprintSyncEvent"), -- RemoteEvent: Server -> Client
 	SprintSyncRequestEvent = SprintEventsFolder:FindFirstChild("SprintSyncRequestEvent"), -- RemoteEvent: Client -> Server
+	SprintSyncAckEvent = SprintEventsFolder:FindFirstChild("SprintSyncAckEvent"), -- RemoteEvent: Client -> Server
 
 	-- Checkpoint Remote Events
 	CheckpointTouchedEvent = CheckpointEventsFolder:FindFirstChild("CheckpointTouchedEvent"), -- RemoteEvent: Client -> Server
@@ -163,6 +164,26 @@ function RemoteEvents.OnSyncRequestReceived(callback)
 	end
 	assert(typeof(callback) == "function", "callback must be function")
 	return RemoteEvents.SprintSyncRequestEvent.OnServerEvent:Connect(callback)
+end
+
+-- Client: Fire sync ACK to server
+function RemoteEvents.FireSyncAck(syncData)
+	if not RemoteEvents.SprintSyncAckEvent then
+		warn("[RemoteEvents] Cannot fire sync ACK - SprintSyncAckEvent not found!")
+		return
+	end
+	assert(typeof(syncData) == "table", "syncData must be table")
+	RemoteEvents.SprintSyncAckEvent:FireServer(syncData)
+end
+
+-- Server: Connect to sync ACK event
+function RemoteEvents.OnSyncAckReceived(callback)
+	if not RemoteEvents.SprintSyncAckEvent then
+		warn("[RemoteEvents] Cannot connect to sync ACK event - SprintSyncAckEvent not found!")
+		return function() end -- Return dummy function
+	end
+	assert(typeof(callback) == "function", "callback must be function")
+	return RemoteEvents.SprintSyncAckEvent.OnServerEvent:Connect(callback)
 end
 
 -- Client: Fire checkpoint touch to server
