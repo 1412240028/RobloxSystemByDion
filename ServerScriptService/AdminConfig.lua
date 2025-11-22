@@ -10,7 +10,7 @@ local AdminConfig = {
 		DEVELOPER = 4,
 		MODERATOR = 3,
 		HELPER = 2,
-		MEMBER = 1,
+		-- MEMBER role removed
 		TESTER = 1
 	},
 

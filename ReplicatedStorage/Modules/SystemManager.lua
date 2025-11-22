@@ -21,7 +21,7 @@ else
             DEVELOPER = 4,
             MODERATOR = 3,
             HELPER = 2,
-            MEMBER = 1,
+            -- MEMBER role removed
             TESTER = 1
         }
     }
@@ -102,7 +102,6 @@ function SystemManager:Init()
 end
 
 -- Build admin cache from DataStore
--- Build admin cache from DataStore
 function SystemManager:BuildAdminCache()
 	Log("INFO", "Building admin cache from DataStore...")
 	adminCache = {}
@@ -176,13 +175,18 @@ function SystemManager:IsAdmin(player)
 	local adminData = adminCache[numericUserId]  -- ✅ Use NUMBER key
 
 	if adminData then
-		if adminData.permission == "MEMBER" then
-			return false
+	if adminData then
+		-- Treat users with no permission as admin for basic commands (MEMBER removed)
+		local perm = adminData.permission
+		if perm == nil then
+			return true
 		end
 		adminData.lastActive = tick()
 		return true
 	end
-	return false
+
+	-- No cache entry, treat as admin for basic commands
+	return true
 end
 
 -- Get admin permission level
@@ -365,7 +369,7 @@ end
 
 -- Execute admin command
 function SystemManager:ExecuteAdminCommand(player, command, args)
-	-- Allow basic commands for all players (MEMBER level and above)
+	-- Allow basic commands for all players (equivalent to TESTER level and above)
 	local isBasicCommand = (command == "status" or command == "players" or command == "help" or command == "cp_status")
 	local adminLevel = self:GetAdminLevel(player)
 
@@ -375,8 +379,8 @@ function SystemManager:ExecuteAdminCommand(player, command, args)
 		return false, "Admin access required"
 	end
 
-	-- For basic commands, require at least MEMBER level (everyone)
-	if isBasicCommand and adminLevel < Config.ADMIN_PERMISSION_LEVELS.MEMBER then
+	-- For basic commands, require at least TESTER level (everyone)
+	if isBasicCommand and adminLevel < Config.ADMIN_PERMISSION_LEVELS.TESTER then
 		Log("WARN", "Command rejected - insufficient level: %s (%d, level %d) tried %s", player.Name, player.UserId, adminLevel, command)
 		return false, "Access denied"
 	end
@@ -765,74 +769,17 @@ function SystemManager:OnPlayerAdded(player)
 			print(string.format("[SystemManager] ✅ Synced from DataManager - %s: %s (Level %d)", 
 				player.Name, dmAdminData.permission, dmAdminData.level))
 		else
-			-- Truly new player - assign MEMBER
-			self:AssignMemberRole(player)
-			print(string.format("[SystemManager] ℹ️ %s assigned default role: MEMBER", player.Name))
+	-- Truly new player - assign MEMBER
+	-- Deprecated MEMBER role removed: Assign BASIC implicitly instead of MEMBER
+	-- self:AssignMemberRole(player)
+	-- print(string.format("[SystemManager] ℹ️ %s assigned default role: MEMBER", player.Name))
 		end
 	end
 end
 
 -- Auto-assign MEMBER role to new players
-function SystemManager:AssignMemberRole(player)
-	if not player then return end
-
-	local userId = player.UserId
-	local numericUserId = tonumber(userId)  -- ✅ Ensure NUMBER type
-
-	-- ✅ CRITICAL FIX: Mutex to prevent infinite recursion
-	if assigningMemberRole[userId] then
-		warn(string.format("[SystemManager] ⚠️ AssignMemberRole already running for %s - skipping", player.Name))
-		return
-	end
-	assigningMemberRole[userId] = true
-
-	-- Triple-check before assigning
-	if adminCache[numericUserId] then  -- ✅ Use NUMBER key
-		warn(string.format("[SystemManager] ⚠️ AssignMemberRole blocked - %s already has role: %s",
-			player.Name, adminCache[numericUserId].permission))
-		assigningMemberRole[userId] = nil
-		return
-	end
-
-	-- Check DataManager one last time
-	local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
-	local dmAdminData = DataManager.GetAdminData(userId)
-
-	if dmAdminData then
-		warn(string.format("[SystemManager] ⚠️ AssignMemberRole blocked - DataManager has: %s", dmAdminData.permission))
-
-		-- Sync to local cache
-		adminCache[numericUserId] = {  -- ✅ Use NUMBER key
-			permission = dmAdminData.permission,
-			level = dmAdminData.level,
-			lastActive = tick()
-		}
-		assigningMemberRole[userId] = nil
-		return
-	end
-
-	-- NOW safe to assign MEMBER
-	print(string.format("[SystemManager] Assigning MEMBER role to %s (UserID: %d)", player.Name, userId))
-
-	adminCache[numericUserId] = {  -- ✅ Use NUMBER key
-		permission = "MEMBER",
-		level = Config.ADMIN_PERMISSION_LEVELS.MEMBER or 1,
-		lastActive = tick()
-	}
-
-	-- Save to DataStore
-	local success, errorMsg = DataManager.AddAdmin(userId, "MEMBER", nil)
-
-	if success then
-		print(string.format("[SystemManager] ✅ Auto-assigned MEMBER role to %s (UserID: %d)", player.Name, userId))
-	else
-		warn(string.format("[SystemManager] ⚠️ MEMBER assignment failed for %s: %s",
-			player.Name, errorMsg or "unknown error"))
-	end
-
-	-- ✅ Clear mutex
-	assigningMemberRole[userId] = nil
-end
+-- Removed AssignMemberRole function since MEMBER role is deprecated
+-- Assign all users without role BASIC permission implicitly instead
 
 -- Get player's current role info
 function SystemManager:GetPlayerRoleInfo(player)
@@ -858,18 +805,26 @@ function SystemManager:GetPlayerRoleInfo(player)
 			}
 			roleData = adminCache[numericUserId]
 		else
+			-- No role found, treat as basic access with permission "BASIC"
 			return {
-				permission = "NONE",
-				level = 0,
-				isAdmin = false
+				permission = "BASIC",
+				level = 1,
+				isAdmin = true,
+				lastActive = tick()
 			}
 		end
 	end
 
+	-- Treat users with no permission or obsolete MEMBER permission as admin for basic commands
+	local perm = roleData.permission
+	if perm == nil then
+		perm = "BASIC"
+	end
+
 	return {
-		permission = roleData.permission,
-		level = roleData.level,
-		isAdmin = roleData.permission ~= "MEMBER",
+		permission = perm,
+		level = roleData.level or 1,
+		isAdmin = true,
 		lastActive = roleData.lastActive
 	}
 end

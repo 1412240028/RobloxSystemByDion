@@ -87,11 +87,6 @@ local currentPage = "Dashboard"
 
 -- ✅ Commands by Permission Level
 local COMMANDS_BY_LEVEL = {
-	MEMBER = {
-		{name = "status", desc = "Show system status", args = ""},
-		{name = "players", desc = "List all players", args = ""},
-		{name = "help", desc = "Show help", args = ""},
-	},
 	HELPER = {
 		{name = "cp_status", desc = "Check checkpoint status", args = "[playerName]"},
 	},
@@ -387,7 +382,7 @@ local function CreateCommandPage(parent, adminData)
 
 	-- Get available commands based on permission
 	local availableCommands = {}
-	local permissionOrder = {"MEMBER", "HELPER", "MODERATOR", "DEVELOPER", "OWNER"}
+	local permissionOrder = {"HELPER", "MODERATOR", "DEVELOPER", "OWNER"} -- Removed "MEMBER"
 
 	for _, perm in ipairs(permissionOrder) do
 		local permLevel = Config and Config.ADMIN_PERMISSION_LEVELS[perm] or 0
@@ -531,15 +526,26 @@ local function InitGUI()
 		wait(0.1)
 	end
 
+
 -- Get admin data (use client cache if available)
 if clientAdminCache[player.UserId] then
+	-- Treat users without explicit role as basic command access (deprecated MEMBER role removed)
+	local perm = clientAdminCache[player.UserId].permission
+	if perm == nil then
+		perm = "BASIC"
+	end
 	adminData = {
-		permission = clientAdminCache[player.UserId].permission,
-		level = clientAdminCache[player.UserId].level,
-		isAdmin = clientAdminCache[player.UserId].permission ~= "MEMBER"
+		permission = perm,
+		level = clientAdminCache[player.UserId].level or 1,
+		isAdmin = true -- treat no role as admin for basic commands
 	}
 else
 	adminData = SystemManager:GetPlayerRoleInfo(player)
+	if adminData and adminData.permission == nil then
+		adminData.permission = "BASIC"
+		adminData.isAdmin = true
+		adminData.level = 1
+	end
 end
 
 	if not adminData or not adminData.isAdmin then

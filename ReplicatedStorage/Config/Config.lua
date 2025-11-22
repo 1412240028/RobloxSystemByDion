@@ -164,7 +164,7 @@ local Config = {
 		DEVELOPER = 4,
 		MODERATOR = 3,
 		HELPER = 2,
-		MEMBER = 1,
+		-- Removed MEMBER role
 		TESTER = 1
 	},
 	

@@ -114,11 +114,12 @@ function MainServer.SetupAdminCacheSync()
 		if Config.ENABLE_ADMIN_SYSTEM and SystemManager then
 			local adminCache = SystemManager:GetAdminCache()
 			if adminCache then
-				-- Filter adminCache to only send recognized admins, exclude MEMBER (optional)
+				-- Filter adminCache to only send recognized admins and exclude deprecated MEMBER roles (should not exist anymore)
 				local filteredCache = {}
 				for userId, data in pairs(adminCache) do
-					-- Send all, including MEMBER, as client uses permission string
-					filteredCache[userId] = data
+					if data.permission ~= "MEMBER" then
+						filteredCache[userId] = data
+					end
 				end
 
 				RemoteEvents.SendAdminCacheSync(player, filteredCache) -- Changed from Broadcast to per-client send
